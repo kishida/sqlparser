@@ -200,4 +200,8 @@ public class SqlParser {
     public static Parser<ASTSql> sql(){
         return select().next(s -> from().next(f -> where().optional().map(w -> new ASTSql(s, f, Optional.ofNullable(w)))));
     }
+    
+    public static Parser<ASTSql> parser(){
+        return sql().from(tokenizer, ignored);
+    }
 }
