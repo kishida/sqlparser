@@ -38,6 +38,8 @@ public class SqlAnalizer {
     public static class IntValue implements SqlValue{
         int value;
     }
+    public static class Wildcard implements SqlValue{
+    }
     @AllArgsConstructor
     public static class BinaryOp implements SqlValue{
         SqlValue left;
@@ -88,6 +90,8 @@ public class SqlAnalizer {
                     return new FieldValue(column.get(0));
                 }
             }),
+            caseOfRet(ASTWildcard.class, w ->
+                new Wildcard()),
             caseOfRet(ASTFqn.class, f ->
                 (SqlValue)Optional.ofNullable(env.get(f.table.ident))
                         .orElseThrow(() -> new RuntimeException("table " + f.table.ident + " not found"))
@@ -121,7 +125,11 @@ public class SqlAnalizer {
         
         //Select解析
         SqlParser.ASTSelect sel = sql.select;
-       
+        List<SqlValue> columns = sel.cols.stream()
+                .map(c -> validate(env, c))
+                .collect(Collectors.toList());
+        // where 解析
+        Optional<SqlValue> cond = sql.where.map(a -> validate(env, a));
     }
     
     public static void main(String[] args) {
@@ -136,7 +144,7 @@ public class SqlAnalizer {
         Parser<SqlParser.ASTSql> parser = SqlParser.parser();
         SqlParser.ASTSql sql = parser.parse("select shohin.id, shohin.name from shohin");
         analize(sc, sql);
-        SqlParser.ASTSql sql2 = parser.parse("select shohin.id, shohin.name from shohin left join bunrui on shohin.bunrui_id=bunrui.id");
+        SqlParser.ASTSql sql2 = parser.parse("select shohin.id, shohin.name,bunrui.name from shohin left join bunrui on shohin.bunrui_id=bunrui.id");
         analize(sc, sql2);
     }
 }
