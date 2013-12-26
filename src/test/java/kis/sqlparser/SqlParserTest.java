@@ -28,10 +28,11 @@ public class SqlParserTest {
     
     @Test
     public void 文字列(){
-        assertThat(SqlParser.str().parse("'test'").str, is("test"));
-        assertThat(SqlParser.str().parse("''").str , is(""));
-        assertThat(SqlParser.str().parse("'tes''t'").str, is("tes't"));
-        assertThat(SqlParser.str().parse("'tes''t'''").str, is("tes't'"));
+        Parser<SqlParser.ASTStr> parser = SqlParser.str().from(SqlParser.tokenizer, SqlParser.ignored);
+        assertThat(parser.parse("'test'").str, is("test"));
+        assertThat(parser.parse("''").str , is(""));
+        assertThat(parser.parse("'tes''t'").str, is("tes't"));
+        assertThat(parser.parse("'tes''t'''").str, is("tes't'"));
     }
     
     @Test

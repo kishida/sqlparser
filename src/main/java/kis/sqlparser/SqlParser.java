@@ -7,6 +7,7 @@
 package kis.sqlparser;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import lombok.AllArgsConstructor;
@@ -63,8 +64,8 @@ public class SqlParser {
         String str;
     }
     public static Parser<ASTStr> str(){
-        return Terminals.StringLiteral.SINGLE_QUOTE_TOKENIZER.map(s -> new ASTStr(
-                s.substring(1, s.length() - 1).replaceAll("''", "'")));
+        return Terminals.StringLiteral.PARSER.map(s -> new ASTStr(
+                s.replaceAll("''", "'")));
     }
     
     // fqn := identifier "." identifier
@@ -150,11 +151,14 @@ public class SqlParser {
     // select := "select" value ("," value)*
     @AllArgsConstructor @ToString
     public static class ASTSelect implements AST{
-        List<AST> cols;
+        List<? extends AST> cols;
+    }
+    
+    public static class ASTWildcard implements AST{
     }
     
     public static Parser<ASTSelect> select(){
-        return terms.token("select").next(Parsers.or(terms.token("*").map(t -> new ArrayList<AST>()), value().next(top -> terms.token(",").next(value()).many().map(l -> {
+        return terms.token("select").next(Parsers.or(terms.token("*").map(t -> Arrays.asList(new ASTWildcard())), value().next(top -> terms.token(",").next(value()).many().map(l -> {
             ArrayList<AST> cols = new ArrayList<>();
             cols.add(top);
             cols.addAll(l);
@@ -195,7 +199,7 @@ public class SqlParser {
     public static class ASTSql implements AST{
         ASTSelect select;
         ASTFrom from;
-        Optional<AST> where;
+        Optional<? extends AST> where;
     }
     public static Parser<ASTSql> sql(){
         return select().next(s -> from().next(f -> where().optional().map(w -> new ASTSql(s, f, Optional.ofNullable(w)))));
