@@ -38,7 +38,7 @@ public class SqlParser {
             Terminals.StringLiteral.SINGLE_QUOTE_TOKENIZER,
             Terminals.IntegerLiteral.TOKENIZER);
     
-    interface AST{}
+    public interface AST{}
     
     // integer
     @AllArgsConstructor @ToString

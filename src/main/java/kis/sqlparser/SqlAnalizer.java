@@ -67,6 +67,43 @@ public class SqlAnalizer {
                 .collect(Collectors.toList());
     }
 
+    public static abstract class QueryPlan{
+    }
+    @AllArgsConstructor
+    public static abstract class NodePlan extends QueryPlan{
+        QueryPlan from;
+    }
+    
+    public static class SelectPlan extends NodePlan{
+        List<SqlValue> values;
+        public SelectPlan(QueryPlan from, List<SqlValue> values){
+            super(from);
+            this.values = values;
+        }
+    }
+    public static class FilterPlan extends NodePlan{
+        SqlValue cond;
+
+        public FilterPlan(QueryPlan from, SqlValue cond) {
+            super(from);
+            this.cond = cond;
+        }
+    }
+    @AllArgsConstructor
+    public static class TablePlan extends QueryPlan{
+        Table table;
+    }
+    public static class JoinPlan extends NodePlan{
+        QueryPlan secondary;
+        SqlValue cond;
+
+        public JoinPlan(QueryPlan from, QueryPlan secondary, SqlValue cond) {
+            super(from);
+            this.secondary = secondary;
+            this.cond = cond;
+        }
+    }
+    
     public static SqlValue validate(Map<String, Table> env, AST ast){
         return matchRet(ast, 
             caseOfRet(ASTStr.class, s -> 
@@ -104,7 +141,7 @@ public class SqlAnalizer {
         );
     }
     
-    public static void analize(Schema sc, SqlParser.ASTSql sql){
+    public static SelectPlan analize(Schema sc, SqlParser.ASTSql sql){
         Map<String, Table> env = new HashMap<>();
 
         //From解析
@@ -114,22 +151,31 @@ public class SqlAnalizer {
                 .orElseThrow(() -> 
                         new RuntimeException("table " + from.table.ident + " not found"));
         env.put(from.table.ident, table);
+        QueryPlan primary = new TablePlan(table);
         
-        from.joins.stream().forEach(j ->{
+        for(ASTJoin j : from.joins){
             String t = j.table.ident;
             Table tb = sc.find(t).orElseThrow(() ->
                 new RuntimeException("join table " + t + " not found"));
             env.put(t, tb);
-            validate(env, j.logic);
-        });
+            SqlValue cond = validate(env, j.logic);
+            TablePlan right = new TablePlan(tb);
+            primary = new JoinPlan(primary, right, cond);
+        }
         
+        // where 解析
+        Optional<SqlValue> cond = sql.where.map(a -> validate(env, a));
+        
+        if(cond.isPresent()){
+            primary = new FilterPlan(primary, cond.get());
+        }
+
         //Select解析
         SqlParser.ASTSelect sel = sql.select;
         List<SqlValue> columns = sel.cols.stream()
                 .map(c -> validate(env, c))
                 .collect(Collectors.toList());
-        // where 解析
-        Optional<SqlValue> cond = sql.where.map(a -> validate(env, a));
+        return new SelectPlan(primary, columns);
     }
     
     public static void main(String[] args) {
