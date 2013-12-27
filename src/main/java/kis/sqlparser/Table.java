@@ -6,7 +6,10 @@
 
 package kis.sqlparser;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -17,10 +20,22 @@ public class Table {
     String name;
     List<Column> columns;
     
+    List<List<Optional<Object>>> data;
+    
     public Table(String name, List<Column> columns){
         this.name = name;
         this.columns = columns.stream()
                 .map(col -> new Column(this, col.name))
                 .collect(Collectors.toList());
+        this.data = new ArrayList<>();
+    }
+    
+    public void insert(Object... values){
+        if(columns.size() < values.length){
+            throw new RuntimeException("values count is over the number of columns");
+        }
+        data.add(Arrays.stream(values)
+                .map(Optional::ofNullable)
+                .collect(Collectors.toList()));
     }
 }

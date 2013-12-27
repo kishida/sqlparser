@@ -68,6 +68,7 @@ public class SqlAnalizer {
     }
 
     public static abstract class QueryPlan{
+        abstract List<Column> getColumns();
     }
     @AllArgsConstructor
     public static abstract class NodePlan extends QueryPlan{
@@ -80,6 +81,13 @@ public class SqlAnalizer {
             super(from);
             this.values = values;
         }
+        @Override
+        List<Column> getColumns() {
+            return values.stream().map(v -> 
+                (v instanceof FieldValue) ?
+                    ((FieldValue)v).column : new Column("0"))
+                .collect(Collectors.toList());
+        }
     }
     public static class FilterPlan extends NodePlan{
         SqlValue cond;
@@ -88,10 +96,20 @@ public class SqlAnalizer {
             super(from);
             this.cond = cond;
         }
+        @Override
+        List<Column> getColumns() {
+            return from.getColumns();
+        }
     }
     @AllArgsConstructor
     public static class TablePlan extends QueryPlan{
         Table table;
+
+        @Override
+        List<Column> getColumns() {
+            return table.columns;
+        }
+        
     }
     public static class JoinPlan extends NodePlan{
         QueryPlan secondary;
@@ -101,6 +119,12 @@ public class SqlAnalizer {
             super(from);
             this.secondary = secondary;
             this.cond = cond;
+        }
+        @Override
+        List<Column> getColumns() {
+            return Stream.concat(
+                    from.getColumns().stream(), 
+                    secondary.getColumns().stream()).collect(Collectors.toList());
         }
     }
     
@@ -131,10 +155,12 @@ public class SqlAnalizer {
                 new Wildcard()),
             caseOfRet(ASTFqn.class, f ->
                 (SqlValue)Optional.ofNullable(env.get(f.table.ident))
-                        .orElseThrow(() -> new RuntimeException("table " + f.table.ident + " not found"))
+                        .orElseThrow(() -> new RuntimeException(
+                                "table " + f.table.ident + " not found"))
                         .columns.stream().filter(c -> c.name.equals(f.field.ident))
                         .findFirst().map(c -> new FieldValue(c))
-                        .orElseThrow(() -> new RuntimeException("field " + f.field.ident + " of " + f.table.ident + " not found"))
+                        .orElseThrow(() -> new RuntimeException(
+                                "field " + f.field.ident + " of " + f.table.ident + " not found"))
             ),
             noMatchRet(() -> {
                     throw new RuntimeException(ast.getClass().getName() + " is wrong type");})
@@ -190,7 +216,8 @@ public class SqlAnalizer {
         Parser<SqlParser.ASTSql> parser = SqlParser.parser();
         SqlParser.ASTSql sql = parser.parse("select shohin.id, shohin.name from shohin");
         analize(sc, sql);
-        SqlParser.ASTSql sql2 = parser.parse("select shohin.id, shohin.name,bunrui.name from shohin left join bunrui on shohin.bunrui_id=bunrui.id");
+        SqlParser.ASTSql sql2 = parser.parse("select shohin.id, shohin.name,bunrui.name"
+                + " from shohin left join bunrui on shohin.bunrui_id=bunrui.id");
         analize(sc, sql2);
     }
 }
