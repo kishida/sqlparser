@@ -8,12 +8,16 @@ package kis.sqlparser;
 
 import java.util.Optional;
 import lombok.AllArgsConstructor;
+import lombok.EqualsAndHashCode;
+import lombok.ToString;
 
 /**
  *
  * @author naoki
  */
 @AllArgsConstructor
+@EqualsAndHashCode
+@ToString
 public class Column {
     Optional<Table> parent;
     String name;
