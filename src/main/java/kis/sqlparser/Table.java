@@ -20,7 +20,7 @@ public class Table {
     String name;
     List<Column> columns;
     
-    List<List<Optional<Object>>> data;
+    List<List<Optional<?>>> data;
     
     public Table(String name, List<Column> columns){
         this.name = name;

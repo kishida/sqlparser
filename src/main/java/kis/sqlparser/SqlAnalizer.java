@@ -64,7 +64,7 @@ public class SqlAnalizer {
         String op;
     }
     
-    public static SqlValue wrap(Optional<Object> o){
+    public static SqlValue wrap(Optional<?> o){
         if(!o.isPresent()){
             return new NullValue();
         }
@@ -76,7 +76,17 @@ public class SqlAnalizer {
         );
     }
     
-    public static SqlValue eval(SqlValue value, Map<Column, Integer> colIndex, List<Optional<Object>> row){
+    public static Optional<?> unwrap(SqlValue v){
+        return matchRet(v,
+            caseOfRet(StringValue.class, s -> Optional.of(s.value)),
+            caseOfRet(IntValue.class, i -> Optional.of(i.value)),
+            caseOfRet(BooleanValue.class, b -> Optional.of(b.value)),
+            noMatchRet(() -> {throw new RuntimeException(v.getClass() + " is not supported");})
+        );
+        
+    }
+    
+    public static SqlValue eval(SqlValue value, Map<Column, Integer> colIndex, List<Optional<?>> row){
         return matchRet(value, 
             caseOfRet(StringValue.class, s -> s),
             caseOfRet(BooleanValue.class, b -> b),
@@ -162,7 +172,7 @@ public class SqlAnalizer {
 
     public static abstract class QueryPlan{
         abstract List<Column> getColumns();
-        abstract Iterator<Optional<List<Optional<Object>>>> iterator();
+        abstract Iterator<Optional<List<Optional<?>>>> iterator();
         
         Map<Column, Integer> getColumnIndex(){
             Map m = new HashMap<>();
@@ -205,8 +215,35 @@ public class SqlAnalizer {
         }
 
         @Override
-        Iterator<Optional<List<Optional<Object>>>> iterator() {
-            throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+        Iterator<Optional<List<Optional<?>>>> iterator() {
+            Iterator<Optional<List<Optional<?>>>> ite = from.iterator();
+            Map<Column, Integer> columnIndex = getColumnIndex();
+            
+            return new Iterator<Optional<List<Optional<?>>>>() {
+
+                @Override
+                public boolean hasNext() {
+                    return ite.hasNext();
+                }
+
+                @Override
+                public Optional<List<Optional<?>>> next() {
+                    Optional<List<Optional<?>>> line = ite.next();
+                    if(!line.isPresent()) return line;
+                    
+                    values.stream().flatMap(c -> {
+                        if(c instanceof Wildcard){
+                            return values.stream();
+                        }else{
+                            return Stream.of(c);
+                        }
+                    }).map(c -> eval(c, columnIndex, line.get()));
+                            
+                    
+                    
+                    return line;
+                }
+            };
         }
 
     }
@@ -224,21 +261,21 @@ public class SqlAnalizer {
         }
 
         @Override
-        Iterator<Optional<List<Optional<Object>>>> iterator() {
-            Iterator<Optional<List<Optional<Object>>>> ite = from.iterator();
+        Iterator<Optional<List<Optional<?>>>> iterator() {
+            Iterator<Optional<List<Optional<?>>>> ite = from.iterator();
             Map<Column, Integer> colindex = getColumnIndex();
             
-            return new Iterator<Optional<List<Optional<Object>>>>(){
+            return new Iterator<Optional<List<Optional<?>>>>(){
                 @Override
                 public boolean hasNext() {
                     return ite.hasNext();
                 }
 
                 @Override
-                public Optional<List<Optional<Object>>> next() {
-                    Optional<List<Optional<Object>>> optLine = ite.next();
+                public Optional<List<Optional<?>>> next() {
+                    Optional<List<Optional<?>>> optLine = ite.next();
                     if(!optLine.isPresent()) return optLine;
-                    List<Optional<Object>> line = optLine.get();
+                    List<Optional<?>> line = optLine.get();
                     SqlValue val = eval(cond, colindex, line);
                     if(val instanceof BooleanValue && ((BooleanValue)val).value){
                         return optLine;
@@ -259,7 +296,7 @@ public class SqlAnalizer {
             return table.columns;
         }
         
-        Iterator<Optional<List<Optional<Object>>>> iterator(){
+        Iterator<Optional<List<Optional<?>>>> iterator(){
             return table.data.stream().map(l -> Optional.of(l)).iterator();
         }
     }
@@ -280,7 +317,7 @@ public class SqlAnalizer {
         }
 
         @Override
-        Iterator<Optional<List<Optional<Object>>>> iterator() {
+        Iterator<Optional<List<Optional<?>>>> iterator() {
             throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
         }
     }
