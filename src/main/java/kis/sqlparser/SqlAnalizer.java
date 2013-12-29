@@ -437,6 +437,21 @@ public class SqlAnalizer {
         return new SelectPlan(primary, columns);
     }
     
+    public static void print(Schema sc, String sqlstr){
+        Parser<SqlParser.ASTSql> parser = SqlParser.parser();
+        SqlParser.ASTSql sql = parser.parse(sqlstr);
+        SelectPlan plan = analize(sc, sql);
+        System.out.println(sqlstr);
+        plan.iterator().forEachRemaining(line ->{
+            line.ifPresent(l -> {
+                System.out.println(l.stream()
+                        .map(o -> o.map(v -> v.toString()).orElse("null"))
+                        .collect(Collectors.joining(",", "[", "]")));
+            });
+        });
+        
+    }
+    
     public static void main(String[] args) {
         Table tshohin = new Table("shohin", Stream.of("id", "name", "bunrui_id", "price")
                 .map(s -> new Column(s)).collect(Collectors.toList()));
@@ -453,29 +468,8 @@ public class SqlAnalizer {
             .insert(4, "きのこ", 3, 120);
         
         Schema sc = new Schema(Arrays.asList(tshohin, tbunrui));
-        Parser<SqlParser.ASTSql> parser = SqlParser.parser();
-        SqlParser.ASTSql sql = parser.parse("select id, name from shohin where price between 130 and 200 or id=1");
-        SelectPlan plan = analize(sc, sql);
-        System.out.println("shohin--");
-        plan.iterator().forEachRemaining(line ->{
-            line.ifPresent(l -> {
-                System.out.println(l.stream()
-                        .map(o -> o.map(v -> v.toString()).orElse("null"))
-                        .collect(Collectors.joining(",", "[", "]")));
-            });
-        });
-        
-        SqlParser.ASTSql sql2 = parser.parse("select shohin.id, shohin.name,bunrui.name"
+        print(sc, "select id, name from shohin where price between 130 and 200 or id=1");
+        print(sc, "select shohin.id, shohin.name,bunrui.name"
                 + " from shohin left join bunrui on shohin.bunrui_id=bunrui.id");
-        SelectPlan jplan = analize(sc, sql2);
-        System.out.println("join--");
-        jplan.iterator().forEachRemaining(line ->{
-            line.ifPresent(l -> {
-                System.out.println(l.stream()
-                        .map(o -> o.map(v -> v.toString()).orElse("null"))
-                        .collect(Collectors.joining(",", "[", "]")));
-            });
-        });
-        
     }
 }
