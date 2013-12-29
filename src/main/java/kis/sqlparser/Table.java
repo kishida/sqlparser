@@ -30,12 +30,13 @@ public class Table {
         this.data = new ArrayList<>();
     }
     
-    public void insert(Object... values){
+    public Table insert(Object... values){
         if(columns.size() < values.length){
             throw new RuntimeException("values count is over the number of columns");
         }
         data.add(Arrays.stream(values)
                 .map(Optional::ofNullable)
                 .collect(Collectors.toList()));
+        return this;
     }
 }

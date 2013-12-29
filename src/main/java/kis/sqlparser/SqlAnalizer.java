@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 import static kis.sqlparser.ObjectPatternMatch.*;
 import kis.sqlparser.SqlParser.*;
 import lombok.AllArgsConstructor;
@@ -81,6 +82,7 @@ public class SqlAnalizer {
             caseOfRet(StringValue.class, s -> Optional.of(s.value)),
             caseOfRet(IntValue.class, i -> Optional.of(i.value)),
             caseOfRet(BooleanValue.class, b -> Optional.of(b.value)),
+            caseOfRet(NullValue.class, n -> Optional.empty()),
             noMatchRet(() -> {throw new RuntimeException(v.getClass() + " is not supported");})
         );
         
@@ -103,23 +105,24 @@ public class SqlAnalizer {
                 if(left instanceof NullValue || right instanceof NullValue){
                     return new NullValue();
                 }
-                if("and".equals(bin.op) || "or".equals(bin.op)){
+                String op = bin.op.trim();
+                if("and".equals(op) || "or".equals(op)){
                     if(left instanceof BooleanValue && right instanceof BooleanValue){
-                        switch(bin.op){
+                        switch(op){
                             case "and":
                                 return new BooleanValue(((BooleanValue)left).value & ((BooleanValue)right).value);
                             case "or":
                                 return new BooleanValue(((BooleanValue)left).value | ((BooleanValue)right).value);
                         }
                     }else{
-                        throw new RuntimeException(bin.op + " operator need boolean value");
+                        throw new RuntimeException(op + " operator need boolean value");
                     }
                 }
                 if(left instanceof IntValue && right instanceof IntValue){
                     int ileft = ((IntValue)left).value;
                     int iright = ((IntValue)right).value;
                     boolean  ret;
-                    switch(bin.op){
+                    switch(op){
                         case "=":
                             ret = ileft == iright;
                             break;
@@ -136,11 +139,11 @@ public class SqlAnalizer {
                             ret = ileft >= iright;
                             break;
                         default:
-                            throw new RuntimeException(bin.op + " operator is not supported");
+                            throw new RuntimeException("[" +op + "] operator is not supported");
                     }
                     return new BooleanValue(ret);
                 }else{
-                    throw new RuntimeException(bin.op + " operator need int value");
+                    throw new RuntimeException(op + " operator need int value");
                 }
             }),
             caseOfRet(TernaryOp.class, ter ->{
@@ -159,7 +162,7 @@ public class SqlAnalizer {
                     throw new RuntimeException("between need int value");
                 }
             }),
-            noMatchRet(() -> null)
+            noMatchRet(() -> {throw new RuntimeException(value.getClass() + " is not suppoerted");})
         );
     }
         
@@ -177,7 +180,7 @@ public class SqlAnalizer {
         Map<Column, Integer> getColumnIndex(){
             Map m = new HashMap<>();
             Counter c = new Counter();
-            getColumns().stream().forEach(col -> m.put(col, c.getCount()));
+            getColumns().stream().forEach(col -> m.put(col, c.getCount() - 1));
             return m;
         }
         
@@ -217,7 +220,7 @@ public class SqlAnalizer {
         @Override
         Iterator<Optional<List<Optional<?>>>> iterator() {
             Iterator<Optional<List<Optional<?>>>> ite = from.iterator();
-            Map<Column, Integer> columnIndex = getColumnIndex();
+            Map<Column, Integer> columnIndex = from.getColumnIndex();
             
             return new Iterator<Optional<List<Optional<?>>>>() {
 
@@ -231,17 +234,16 @@ public class SqlAnalizer {
                     Optional<List<Optional<?>>> line = ite.next();
                     if(!line.isPresent()) return line;
                     
-                    values.stream().flatMap(c -> {
+                    return Optional.of(values.stream().flatMap(c -> {
                         if(c instanceof Wildcard){
-                            return values.stream();
+                            return from.getColumns().stream().map(FieldValue::new);
                         }else{
                             return Stream.of(c);
                         }
-                    }).map(c -> eval(c, columnIndex, line.get()));
-                            
-                    
-                    
-                    return line;
+                    })
+                        .map(c -> eval(c, columnIndex, line.get()))
+                        .map(v -> unwrap(v))
+                        .collect(Collectors.toList()));
                 }
             };
         }
@@ -263,7 +265,7 @@ public class SqlAnalizer {
         @Override
         Iterator<Optional<List<Optional<?>>>> iterator() {
             Iterator<Optional<List<Optional<?>>>> ite = from.iterator();
-            Map<Column, Integer> colindex = getColumnIndex();
+            Map<Column, Integer> colindex = from.getColumnIndex();
             
             return new Iterator<Optional<List<Optional<?>>>>(){
                 @Override
@@ -296,6 +298,7 @@ public class SqlAnalizer {
             return table.columns;
         }
         
+        @Override
         Iterator<Optional<List<Optional<?>>>> iterator(){
             return table.data.stream().map(l -> Optional.of(l)).iterator();
         }
@@ -399,17 +402,30 @@ public class SqlAnalizer {
     }
     
     public static void main(String[] args) {
-        Schema sc = new Schema(
-            Arrays.asList(
-                new Table("shohin", Stream.of("id", "name", "bunrui_id", "price")
-                        .map(s -> new Column(s)).collect(Collectors.toList())),
-                new Table("bunrui", Stream.of("id", "name")
-                        .map(s -> new Column(s)).collect(Collectors.toList()))
-            )
-        );
+        Table tshohin = new Table("shohin", Stream.of("id", "name", "bunrui_id", "price")
+                .map(s -> new Column(s)).collect(Collectors.toList()));
+        Table tbunrui = new Table("bunrui", Stream.of("id", "name")
+                .map(s -> new Column(s)).collect(Collectors.toList()));
+        tbunrui
+            .insert(1, "野菜")
+            .insert(2, "くだもの")
+            .insert(3, "菓子");
+        tshohin
+            .insert(1, "りんご", 2, 250)
+            .insert(2, "キャベツ", 1, 200)
+            .insert(3, "たけのこ", 3, 150);
+        
+        Schema sc = new Schema(Arrays.asList(tshohin, tbunrui));
         Parser<SqlParser.ASTSql> parser = SqlParser.parser();
-        SqlParser.ASTSql sql = parser.parse("select shohin.id, shohin.name from shohin");
-        analize(sc, sql);
+        SqlParser.ASTSql sql = parser.parse("select id, name from shohin where price <= 200");
+        SelectPlan plan = analize(sc, sql);
+        System.out.println("shohin--");
+        plan.iterator().forEachRemaining(line ->{
+            line.ifPresent(l -> {
+                System.out.println(l.stream().map(o -> o.isPresent() ? o.get().toString() : "null").collect(Collectors.joining(",", "[", "]")));
+            });
+        });
+        
         SqlParser.ASTSql sql2 = parser.parse("select shohin.id, shohin.name,bunrui.name"
                 + " from shohin left join bunrui on shohin.bunrui_id=bunrui.id");
         analize(sc, sql2);
