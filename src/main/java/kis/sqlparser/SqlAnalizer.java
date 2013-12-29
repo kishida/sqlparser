@@ -12,11 +12,9 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Spliterators;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
 import static kis.sqlparser.ObjectPatternMatch.*;
 import kis.sqlparser.SqlParser.*;
 import lombok.AllArgsConstructor;
@@ -75,7 +73,7 @@ public class SqlAnalizer {
             caseOfRet(String.class, s -> new StringValue(s)),
             caseOfRet(Integer.class, i -> new IntValue(i)),
             caseOfRet(Boolean.class, b -> new BooleanValue(b)),
-            noMatchRet(() -> {throw new RuntimeException(o.getClass() + " is not supported");})
+            noMatchThrow(() -> new RuntimeException(o.getClass() + " is not supported"))
         );
     }
     
@@ -85,7 +83,7 @@ public class SqlAnalizer {
             caseOfRet(IntValue.class, i -> Optional.of(i.value)),
             caseOfRet(BooleanValue.class, b -> Optional.of(b.value)),
             caseOfRet(NullValue.class, n -> Optional.empty()),
-            noMatchRet(() -> {throw new RuntimeException(v.getClass() + " is not supported");})
+            noMatchThrow(() -> new RuntimeException(v.getClass() + " is not supported"))
         );
         
     }
@@ -161,10 +159,10 @@ public class SqlAnalizer {
                     int isec = ((IntValue)sec).value;
                     return new BooleanValue((ifirst <= icond && icond <= isec) || (isec <= icond && icond <= ifirst));
                 }else{
-                    throw new RuntimeException("between need int value");
+                    throw new RuntimeException("between operator need int value");
                 }
             }),
-            noMatchRet(() -> {throw new RuntimeException(value.getClass() + " is not suppoerted");})
+            noMatchThrow(() -> new RuntimeException(value.getClass() + " is not suppoerted"))
         );
     }
         
@@ -395,8 +393,8 @@ public class SqlAnalizer {
                         .orElseThrow(() -> new RuntimeException(
                                 "field " + f.field.ident + " of " + f.table.ident + " not found"))
             ),
-            noMatchRet(() -> {
-                    throw new RuntimeException(ast.getClass().getName() + " is wrong type");})
+            noMatchThrow(() -> 
+                    new RuntimeException(ast.getClass().getName() + " is wrong type"))
         );
     }
     
@@ -465,7 +463,8 @@ public class SqlAnalizer {
             .insert(1, "りんご", 2, 250)
             .insert(2, "キャベツ", 1, 200)
             .insert(3, "たけのこ", 3, 150)
-            .insert(4, "きのこ", 3, 120);
+            .insert(4, "きのこ", 3, 120)
+            .insert(5, "パソコン", 0, 34800);
         
         Schema sc = new Schema(Arrays.asList(tshohin, tbunrui));
         print(sc, "select id, name from shohin where price between 130 and 200 or id=1");

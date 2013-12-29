@@ -92,5 +92,18 @@ public class ObjectPatternMatch {
             }
         };
     }
-        
+    public static<R> MatchCaseRet<R> noMatchThrow(Supplier<? extends RuntimeException> sup){
+        return new MatchCaseRet<R>() {
+
+            @Override
+            public boolean match(Object o) {
+                return true;
+            }
+
+            @Override
+            public R proc(Object o) {
+                throw sup.get();
+            }
+        };
+    }
 }
