@@ -248,6 +248,11 @@ public class SqlAnalizer {
             };
         }
 
+        @Override
+        public String toString() {
+            return "select <- " + from.toString();
+        }
+        
     }
 
     public static class FilterPlan extends NodePlan{
@@ -288,7 +293,14 @@ public class SqlAnalizer {
                 
             };
         }
+
+        @Override
+        public String toString() {
+            return "filter[] <- " + from.toString();
+        }
+        
     }
+    
     @AllArgsConstructor
     public static class TablePlan extends QueryPlan{
         Table table;
@@ -306,6 +318,11 @@ public class SqlAnalizer {
                             IntStream.range(0, getColumns().size() - l.size()).mapToObj(i -> Optional.empty()))
                             .collect(Collectors.toList())
             )).iterator();
+        }
+
+        @Override
+        public String toString() {
+            return "table[" + table.name + "]";
         }
     }
     public static class JoinPlan extends NodePlan{
@@ -357,6 +374,12 @@ public class SqlAnalizer {
                 }
             };
         }
+
+        @Override
+        public String toString() {
+            return "join(nested loop) <- " + from.toString() + " / <- " + secondary.toString();
+        }
+        
     }
     
     public static SqlValue validate(Map<String, Table> env, AST ast){
@@ -440,6 +463,7 @@ public class SqlAnalizer {
         SqlParser.ASTSql sql = parser.parse(sqlstr);
         SelectPlan plan = analize(sc, sql);
         System.out.println(sqlstr);
+        System.out.println(plan);
         plan.iterator().forEachRemaining(line ->{
             line.ifPresent(l -> {
                 System.out.println(l.stream()
