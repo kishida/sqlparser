@@ -12,7 +12,9 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Spliterators;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import static kis.sqlparser.ObjectPatternMatch.*;
@@ -105,7 +107,7 @@ public class SqlAnalizer {
                 if(left instanceof NullValue || right instanceof NullValue){
                     return new NullValue();
                 }
-                String op = bin.op.trim();
+                String op = bin.op;
                 if("and".equals(op) || "or".equals(op)){
                     if(left instanceof BooleanValue && right instanceof BooleanValue){
                         switch(op){
@@ -300,7 +302,12 @@ public class SqlAnalizer {
         
         @Override
         Iterator<Optional<List<Optional<?>>>> iterator(){
-            return table.data.stream().map(l -> Optional.of(l)).iterator();
+            return table.data.stream().map(l -> Optional.of(
+                    Stream.concat(
+                            l.stream(), 
+                            IntStream.range(0, getColumns().size() - l.size()).mapToObj(i -> Optional.empty()))
+                            .collect(Collectors.toList())
+            )).iterator();
         }
     }
     public static class JoinPlan extends NodePlan{
@@ -321,7 +328,36 @@ public class SqlAnalizer {
 
         @Override
         Iterator<Optional<List<Optional<?>>>> iterator() {
-            throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+            Iterator<Optional<List<Optional<?>>>> ite = from.iterator();
+            Map<Column, Integer> columnIndex = getColumnIndex();
+            return new Iterator<Optional<List<Optional<?>>>>() {
+                @Override
+                public boolean hasNext() {
+                    return ite.hasNext();
+                }
+
+                @Override
+                public Optional<List<Optional<?>>> next() {
+                    Optional<List<Optional<?>>> optLine = ite.next();
+                    if(!optLine.isPresent()) return optLine;
+                    List<Optional<?>> line = optLine.get();
+                    for(Iterator<Optional<List<Optional<?>>>> site = secondary.iterator(); site.hasNext();){
+                        Optional<List<Optional<?>>> sline = site.next();
+                        if(!sline.isPresent()) continue;
+                        List<Optional<?>> joinline = Stream.concat(
+                                line.stream(), sline.get().stream())
+                                .collect(Collectors.toList());
+                        SqlValue v = eval(cond, columnIndex, joinline);
+                        if(v instanceof BooleanValue && ((BooleanValue)v).value){
+                            return Optional.of(joinline);
+                        }
+                    }
+                    return Optional.of(Stream.concat(
+                            line.stream(),
+                            IntStream.range(0, secondary.getColumns().size()).mapToObj(i -> Optional.empty()))
+                            .collect(Collectors.toList()));
+                }
+            };
         }
     }
     
@@ -330,9 +366,9 @@ public class SqlAnalizer {
             caseOfRet(ASTStr.class, s -> 
                     new StringValue(s.str)),
             caseOfRet(ASTLogic.class, l -> 
-                    new BinaryOp(validate(env, l.left), validate(env, l.right), l.op)),
+                    new BinaryOp(validate(env, l.left), validate(env, l.right), l.op.trim())),
             caseOfRet(ASTCond.class, c -> 
-                    new BinaryOp(validate(env, c.left), validate(env, c.right), c.op)),
+                    new BinaryOp(validate(env, c.left), validate(env, c.right), c.op.trim())),
             caseOfRet(ASTBetween.class, b -> 
                     new TernaryOp(validate(env, b.obj),validate(env, b.start), validate(env, b.end),
                             "between")),
@@ -413,21 +449,33 @@ public class SqlAnalizer {
         tshohin
             .insert(1, "りんご", 2, 250)
             .insert(2, "キャベツ", 1, 200)
-            .insert(3, "たけのこ", 3, 150);
+            .insert(3, "たけのこ", 3, 150)
+            .insert(4, "きのこ", 3, 120);
         
         Schema sc = new Schema(Arrays.asList(tshohin, tbunrui));
         Parser<SqlParser.ASTSql> parser = SqlParser.parser();
-        SqlParser.ASTSql sql = parser.parse("select id, name from shohin where price <= 200");
+        SqlParser.ASTSql sql = parser.parse("select id, name from shohin where price between 130 and 200 or id=1");
         SelectPlan plan = analize(sc, sql);
         System.out.println("shohin--");
         plan.iterator().forEachRemaining(line ->{
             line.ifPresent(l -> {
-                System.out.println(l.stream().map(o -> o.isPresent() ? o.get().toString() : "null").collect(Collectors.joining(",", "[", "]")));
+                System.out.println(l.stream()
+                        .map(o -> o.map(v -> v.toString()).orElse("null"))
+                        .collect(Collectors.joining(",", "[", "]")));
             });
         });
         
         SqlParser.ASTSql sql2 = parser.parse("select shohin.id, shohin.name,bunrui.name"
                 + " from shohin left join bunrui on shohin.bunrui_id=bunrui.id");
-        analize(sc, sql2);
+        SelectPlan jplan = analize(sc, sql2);
+        System.out.println("join--");
+        jplan.iterator().forEachRemaining(line ->{
+            line.ifPresent(l -> {
+                System.out.println(l.stream()
+                        .map(o -> o.map(v -> v.toString()).orElse("null"))
+                        .collect(Collectors.joining(",", "[", "]")));
+            });
+        });
+        
     }
 }
