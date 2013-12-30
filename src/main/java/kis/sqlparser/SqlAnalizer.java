@@ -175,7 +175,7 @@ public class SqlAnalizer {
 
     public static abstract class QueryPlan{
         abstract List<Column> getColumns();
-        abstract Iterator<Optional<List<Optional<?>>>> iterator();
+        abstract Records<List<Optional<?>>> records();
         
         Map<Column, Integer> getColumnIndex(){
             Map m = new HashMap<>();
@@ -198,7 +198,13 @@ public class SqlAnalizer {
         int getCount(){
             return ++count;
         }
-    }    
+    }
+    
+    @FunctionalInterface
+    static interface Records<T>{
+        Optional<T> next();
+    }
+    
     public static class SelectPlan extends NodePlan{
         List<SqlValue> values;
         public SelectPlan(QueryPlan from, List<SqlValue> values){
@@ -218,34 +224,25 @@ public class SqlAnalizer {
         }
 
         @Override
-        Iterator<Optional<List<Optional<?>>>> iterator() {
-            Iterator<Optional<List<Optional<?>>>> ite = from.iterator();
+        Records<List<Optional<?>>> records() {
+            Records<List<Optional<?>>> records = from.records();
             Map<Column, Integer> columnIndex = from.getColumnIndex();
             
-            return new Iterator<Optional<List<Optional<?>>>>() {
+            return () -> {
+                Optional<List<Optional<?>>> line = records.next();
+                if(!line.isPresent()) return line;
 
-                @Override
-                public boolean hasNext() {
-                    return ite.hasNext();
-                }
-
-                @Override
-                public Optional<List<Optional<?>>> next() {
-                    Optional<List<Optional<?>>> line = ite.next();
-                    if(!line.isPresent()) return line;
-                    
-                    return Optional.of(values.stream().flatMap(c -> {
-                        if(c instanceof Wildcard){
-                            return from.getColumns().stream().map(FieldValue::new);
-                        }else{
-                            return Stream.of(c);
-                        }
-                    })
-                        .map(c -> eval(c, columnIndex, line.get()))
-                        .map(v -> unwrap(v))
-                        .collect(Collectors.toList()));
-                }
-            };
+                return Optional.of(values.stream().flatMap(c -> {
+                    if(c instanceof Wildcard){
+                        return from.getColumns().stream().map(FieldValue::new);
+                    }else{
+                        return Stream.of(c);
+                    }
+                })
+                    .map(c -> eval(c, columnIndex, line.get()))
+                    .map(v -> unwrap(v))
+                    .collect(Collectors.toList()));
+            };        
         }
 
         @Override
@@ -268,29 +265,19 @@ public class SqlAnalizer {
         }
 
         @Override
-        Iterator<Optional<List<Optional<?>>>> iterator() {
-            Iterator<Optional<List<Optional<?>>>> ite = from.iterator();
-            Map<Column, Integer> colindex = from.getColumnIndex();
+        Records<List<Optional<?>>> records() {
+            Records<List<Optional<?>>> records = from.records();
+            Map<Column, Integer> columnIndex = from.getColumnIndex();
             
-            return new Iterator<Optional<List<Optional<?>>>>(){
-                @Override
-                public boolean hasNext() {
-                    return ite.hasNext();
-                }
-
-                @Override
-                public Optional<List<Optional<?>>> next() {
-                    Optional<List<Optional<?>>> optLine = ite.next();
-                    if(!optLine.isPresent()) return optLine;
+            return () -> {
+                for(Optional<List<Optional<?>>> optLine; (optLine = records.next()).isPresent();){
                     List<Optional<?>> line = optLine.get();
-                    SqlValue val = eval(cond, colindex, line);
+                    SqlValue val = eval(cond, columnIndex, line);
                     if(val instanceof BooleanValue && ((BooleanValue)val).value){
                         return optLine;
-                    }else{
-                        return Optional.empty();
                     }
                 }
-                
+                return Optional.empty();
             };
         }
 
@@ -309,15 +296,19 @@ public class SqlAnalizer {
         List<Column> getColumns() {
             return table.columns;
         }
-        
+
         @Override
-        Iterator<Optional<List<Optional<?>>>> iterator(){
-            return table.data.stream().map(l -> Optional.of(
-                    Stream.concat(
-                            l.stream(), 
-                            IntStream.range(0, getColumns().size() - l.size()).mapToObj(i -> Optional.empty()))
-                            .collect(Collectors.toList())
-            )).iterator();
+        Records<List<Optional<?>>> records() {
+            Iterator<List<Optional<?>>> ite = table.data.iterator();
+            return () -> {
+                if(!ite.hasNext()) return Optional.empty();
+                List<Optional<?>> line = ite.next();
+                return Optional.of(
+                        Stream.concat(
+                                line.stream(),
+                                IntStream.range(0, getColumns().size() - line.size()).mapToObj(i -> Optional.empty()))
+                                .collect(Collectors.toList()));
+            };
         }
 
         @Override
@@ -342,44 +333,35 @@ public class SqlAnalizer {
         }
 
         @Override
-        Iterator<Optional<List<Optional<?>>>> iterator() {
-            Iterator<Optional<List<Optional<?>>>> ite = from.iterator();
+        Records<List<Optional<?>>> records() {
+            Records<List<Optional<?>>> records = from.records();
             Map<Column, Integer> columnIndex = getColumnIndex();
-            return new Iterator<Optional<List<Optional<?>>>>() {
-                @Override
-                public boolean hasNext() {
-                    return ite.hasNext();
-                }
-
-                @Override
-                public Optional<List<Optional<?>>> next() {
-                    Optional<List<Optional<?>>> optLine = ite.next();
-                    if(!optLine.isPresent()) return optLine;
-                    List<Optional<?>> line = optLine.get();
-                    for(Iterator<Optional<List<Optional<?>>>> site = secondary.iterator(); site.hasNext();){
-                        Optional<List<Optional<?>>> sline = site.next();
-                        if(!sline.isPresent()) continue;
-                        List<Optional<?>> joinline = Stream.concat(
-                                line.stream(), sline.get().stream())
-                                .collect(Collectors.toList());
-                        SqlValue v = eval(cond, columnIndex, joinline);
-                        if(v instanceof BooleanValue && ((BooleanValue)v).value){
-                            return Optional.of(joinline);
-                        }
+            return () -> {
+                Optional<List<Optional<?>>> optLine = records.next();
+                if(!optLine.isPresent()) return optLine;
+                List<Optional<?>> line = optLine.get();
+                Records<List<Optional<?>>> srec = secondary.records();
+                for(Optional<List<Optional<?>>> sline;(sline = srec.next()).isPresent();){
+                    List<Optional<?>> joinline = Stream.concat(
+                            line.stream(), sline.get().stream())
+                            .collect(Collectors.toList());
+                    SqlValue v = eval(cond, columnIndex, joinline);
+                    if(v instanceof BooleanValue && ((BooleanValue)v).value){
+                        return Optional.of(joinline);
                     }
-                    return Optional.of(Stream.concat(
-                            line.stream(),
-                            IntStream.range(0, secondary.getColumns().size()).mapToObj(i -> Optional.empty()))
-                            .collect(Collectors.toList()));
                 }
+                return Optional.of(Stream.concat(
+                        line.stream(),
+                        IntStream.range(0, secondary.getColumns().size()).mapToObj(i -> Optional.empty()))
+                        .collect(Collectors.toList()));
             };
         }
-
+        
         @Override
         public String toString() {
             return "join(nested loop) <- " + from.toString() + " / <- " + secondary.toString();
         }
-        
+
     }
     
     public static SqlValue validate(Map<String, Table> env, AST ast){
@@ -464,14 +446,15 @@ public class SqlAnalizer {
         SelectPlan plan = analize(sc, sql);
         System.out.println(sqlstr);
         System.out.println(plan);
-        plan.iterator().forEachRemaining(line ->{
+
+        Records<List<Optional<?>>> rec = plan.records();
+        for(Optional<List<Optional<?>>> line; (line = rec.next()).isPresent();){
             line.ifPresent(l -> {
                 System.out.println(l.stream()
                         .map(o -> o.map(v -> v.toString()).orElse("null"))
                         .collect(Collectors.joining(",", "[", "]")));
             });
-        });
-        
+        }
     }
     
     public static void main(String[] args) {
@@ -486,12 +469,13 @@ public class SqlAnalizer {
         tshohin
             .insert(1, "りんご", 2, 250)
             .insert(2, "キャベツ", 1, 200)
-            .insert(3, "たけのこ", 3, 150)
+            .insert(3, "たけのこの", 3, 150)
             .insert(4, "きのこ", 3, 120)
             .insert(5, "パソコン", 0, 34800);
         
         Schema sc = new Schema(Arrays.asList(tshohin, tbunrui));
         print(sc, "select id, name from shohin where price between 130 and 200 or id=1");
+        print(sc, "select id, name from shohin where price between 130 and 200");
         print(sc, "select shohin.id, shohin.name,bunrui.name"
                 + " from shohin left join bunrui on shohin.bunrui_id=bunrui.id");
     }
