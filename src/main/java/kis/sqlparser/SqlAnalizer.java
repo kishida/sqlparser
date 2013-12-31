@@ -6,6 +6,7 @@
 
 package kis.sqlparser;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -29,32 +30,67 @@ public class SqlAnalizer {
     public static interface SqlValue{
         
     }
-    @AllArgsConstructor @ToString
+    @AllArgsConstructor
     public static class StringValue implements SqlValue{
         String value;
+        
+        @Override
+        public String toString() {
+            return "'" + value + "'";
+        }
     }
-    @AllArgsConstructor @ToString
+    @AllArgsConstructor
     public static class BooleanValue implements SqlValue{
         boolean value;
+        
+        @Override
+        public String toString() {
+            return value + "";
+        }
     }
-    @AllArgsConstructor @ToString
+    @AllArgsConstructor
     public static class IntValue implements SqlValue{
         int value;
+        
+        @Override
+        public String toString() {
+            return value + "";
+        }
     }
     public static class NullValue implements SqlValue{
+        @Override
+        public String toString() {
+            return "NULL";
+        }
     }
+    @ToString
     public static class Wildcard implements SqlValue{
+        @Override
+        public String toString() {
+            return "*";
+        }
     }
-    @AllArgsConstructor @ToString
+    
+    @AllArgsConstructor
     public static class BinaryOp implements SqlValue{
         SqlValue left;
         SqlValue right;
         String op;
+
+        @Override
+        public String toString() {
+            return String.format("%s %s %s", left, op, right);
+        }
     }
     
-    @AllArgsConstructor @ToString
+    @AllArgsConstructor
     public static class FieldValue implements SqlValue{
         Column column;
+
+        @Override
+        public String toString() {
+            return column.parent.map(t -> t.name + ".").orElse("") + column.name;
+        }
     }
     
     @AllArgsConstructor @ToString
@@ -176,6 +212,15 @@ public class SqlAnalizer {
     public static abstract class QueryPlan{
         abstract List<Column> getColumns();
         abstract Records<List<Optional<?>>> records();
+        Optional<NodePlan> to;
+
+        public QueryPlan() {
+            this.to = Optional.empty();
+        }
+
+        public void setTo(NodePlan to) {
+            this.to = Optional.ofNullable(to);
+        }
         
         Map<Column, Integer> getColumnIndex(){
             Map m = new HashMap<>();
@@ -185,9 +230,13 @@ public class SqlAnalizer {
         }
         
     }
-    @AllArgsConstructor
+    //@AllArgsConstructor
     public static abstract class NodePlan extends QueryPlan{
         QueryPlan from;
+        public NodePlan(QueryPlan from) {
+            this.from = from;
+            from.setTo(this);
+        }
     }
     
     static class Counter{
@@ -207,6 +256,7 @@ public class SqlAnalizer {
     
     public static class SelectPlan extends NodePlan{
         List<SqlValue> values;
+        
         public SelectPlan(QueryPlan from, List<SqlValue> values){
             super(from);
             this.values = values;
@@ -247,18 +297,22 @@ public class SqlAnalizer {
 
         @Override
         public String toString() {
-            return "select <- " + from.toString();
+            return "select\n  <- " + from.toString();
         }
         
     }
 
     public static class FilterPlan extends NodePlan{
-        SqlValue cond;
+        List<SqlValue> conds;
 
-        public FilterPlan(QueryPlan from, SqlValue cond) {
+        public FilterPlan(QueryPlan from, List<SqlValue> conds) {
             super(from);
-            this.cond = cond;
+            this.conds = conds;
         }
+        public FilterPlan(QueryPlan from, SqlValue cond) {
+            this(from, Arrays.asList(cond));
+        }
+     
         @Override
         List<Column> getColumns() {
             return from.getColumns();
@@ -272,8 +326,10 @@ public class SqlAnalizer {
             return () -> {
                 for(Optional<List<Optional<?>>> optLine; (optLine = records.next()).isPresent();){
                     List<Optional<?>> line = optLine.get();
-                    SqlValue val = eval(cond, columnIndex, line);
-                    if(val instanceof BooleanValue && ((BooleanValue)val).value){
+                    boolean allTrue = conds.stream()
+                            .map(cond -> eval(cond, columnIndex, line))
+                            .allMatch(val -> val instanceof BooleanValue && ((BooleanValue)val).value);
+                    if(allTrue){
                         return optLine;
                     }
                 }
@@ -283,14 +339,39 @@ public class SqlAnalizer {
 
         @Override
         public String toString() {
-            return "filter[] <- " + from.toString();
+            return "filter" + conds + "\n  <- " + from.toString();
         }
         
     }
     
-    @AllArgsConstructor
+    public static class EmptyPlan extends NodePlan{
+
+        public EmptyPlan(QueryPlan from) {
+            super(from);
+        }
+
+        @Override
+        List<Column> getColumns() {
+            return from.getColumns();
+        }
+
+        @Override
+        Records<List<Optional<?>>> records() {
+            return () -> Optional.empty();
+        }
+
+        @Override
+        public String toString() {
+            return "empty\n  <- " + from.toString();
+        }
+    }
+    
     public static class TablePlan extends QueryPlan{
         Table table;
+
+        public TablePlan(Table table) {
+            this.table = table;
+        }
 
         @Override
         List<Column> getColumns() {
@@ -359,7 +440,7 @@ public class SqlAnalizer {
         
         @Override
         public String toString() {
-            return "join(nested loop) <- " + from.toString() + " / <- " + secondary.toString();
+            return "join(nested loop)\n  <- " + from.toString() + "\n  /\n  <- " + secondary.toString();
         }
 
     }
@@ -440,13 +521,142 @@ public class SqlAnalizer {
         return new SelectPlan(primary, columns);
     }
     
+    static boolean hasOr(SqlValue v){
+        if(!(v instanceof BinaryOp)){
+            return false;
+        }
+        BinaryOp bin = (BinaryOp) v;
+        switch(bin.op){
+            case "and":
+                return hasOr(bin.left) || hasOr(bin.right);
+            case "or":
+                return true;
+            default:
+                return false;
+        }
+    }
+    
+    static void andSerialize(List<SqlValue> ands, SqlValue v){
+        if(!(v instanceof BinaryOp)){
+            ands.add(v);
+            return;
+        }
+        BinaryOp bin = (BinaryOp) v;
+        switch(bin.op){
+            case "and":
+                andSerialize(ands, bin.left);
+                andSerialize(ands, bin.right);
+                break;
+            case "or":
+                throw new RuntimeException("or can not be optimized");
+            default:
+                ands.add(bin);
+        }
+    }
+    
+    public static SelectPlan optimize(Schema sc, SelectPlan plan){
+        //whereがないなら最適化しない
+        if(!(plan.from instanceof FilterPlan)){
+            return plan;
+        }
+        FilterPlan filter = (FilterPlan) plan.from;
+        List<SqlValue> conds = filter.conds;
+        //orが入ってたら最適化しない
+        if(conds.stream().anyMatch(cond -> hasOr(cond))){
+            return plan;
+        }
+        
+        //プライマリテーブルを取得
+        QueryPlan q = filter;
+        for(;q instanceof NodePlan; q = ((NodePlan)q).from){
+            // do nothing;
+        }
+        TablePlan t = (TablePlan) q;
+        
+        //andをリストに分解
+        List<SqlValue> ands = new ArrayList<>();
+        conds.stream()
+                .forEach(cond -> andSerialize(ands, cond));
+        
+        boolean alwaysFalse = false;
+        List<SqlValue> root = new ArrayList<>();
+        for(Iterator<SqlValue> ite = ands.iterator(); ite.hasNext();){
+            SqlValue v = ite.next();
+            if(v instanceof BinaryOp){
+                BinaryOp bin = (BinaryOp) v;
+                //定数同士での比較はあらかじめ計算する
+                if(bin.left instanceof IntValue && bin.right instanceof IntValue){
+                    SqlValue b = eval(v, null, null);
+                    if(b instanceof BooleanValue){
+                        if(((BooleanValue)b).value){
+                            //常に真
+                            ite.remove();//計算不要
+                            continue;
+                        }else{
+                            //常に偽
+                            alwaysFalse = true;
+                            break;
+                        }
+                    }
+                }
+                //片方がフィールドのとき
+                if((bin.left instanceof FieldValue && !(bin.right instanceof FieldValue)) ||
+                        (!(bin.left instanceof FieldValue) && bin.right instanceof FieldValue)){
+                    FieldValue f = (FieldValue)((bin.left instanceof FieldValue) ? bin.left : bin.right);
+                    f.column.parent
+                            .filter(pt -> pt.name.equals(t.table.name))
+                            .ifPresent(pt -> 
+                    {
+                        root.add(bin);
+                        ite.remove();
+                    });
+                }
+                        
+            }
+        }
+        
+        if(alwaysFalse){
+            //常に偽
+            ands.clear();
+            root.clear();
+            //テーブルの前にemptyフィルター
+            Optional<NodePlan> oto = t.to;
+            EmptyPlan ep = new EmptyPlan(t);
+            ep.to = oto;
+            oto.ifPresent(to -> to.from = ep);
+        }
+        
+        if(ands.isEmpty()){
+            //もとの条件式が空になったらfilterをはずす
+            filter.from.to = filter.to;
+            filter.to.ifPresent(to -> to.from = filter.from);
+        }else{
+            //空でなければfilterいれかえ
+            FilterPlan newFilter = new FilterPlan(filter.from, ands);
+            filter.to.ifPresent(to -> to.from = newFilter);
+            newFilter.to = filter.to;
+        }
+        
+        if(!root.isEmpty()){
+            //テーブルフィルターが空でなければfilter挿入
+            Optional<NodePlan> oto = t.to;
+            FilterPlan newFilter = new FilterPlan(t, root);
+            newFilter.to = oto;
+            oto.ifPresent(to -> to.from = newFilter);
+        }
+        
+        return plan;
+    }
+    
     public static void print(Schema sc, String sqlstr){
         Parser<SqlParser.ASTSql> parser = SqlParser.parser();
         SqlParser.ASTSql sql = parser.parse(sqlstr);
         SelectPlan plan = analize(sc, sql);
         System.out.println(sqlstr);
-        System.out.println(plan);
-
+        System.out.println("初期プラン:" + plan);
+        plan = optimize(sc, plan);
+        System.out.println("論理最適化:" + plan);
+        
         Records<List<Optional<?>>> rec = plan.records();
         for(Optional<List<Optional<?>>> line; (line = rec.next()).isPresent();){
             line.ifPresent(l -> {
@@ -455,17 +665,18 @@ public class SqlAnalizer {
                         .collect(Collectors.joining(",", "[", "]")));
             });
         }
+        System.out.println();
     }
     
     public static void main(String[] args) {
         Table tshohin = new Table("shohin", Stream.of("id", "name", "bunrui_id", "price")
                 .map(s -> new Column(s)).collect(Collectors.toList()));
-        Table tbunrui = new Table("bunrui", Stream.of("id", "name")
+        Table tbunrui = new Table("bunrui", Stream.of("id", "name", "seisen")
                 .map(s -> new Column(s)).collect(Collectors.toList()));
         tbunrui
-            .insert(1, "野菜")
-            .insert(2, "くだもの")
-            .insert(3, "菓子");
+            .insert(1, "野菜", 1)
+            .insert(2, "くだもの", 1)
+            .insert(3, "菓子", 2);
         tshohin
             .insert(1, "りんご", 2, 250)
             .insert(2, "キャベツ", 1, 200)
@@ -476,7 +687,16 @@ public class SqlAnalizer {
         Schema sc = new Schema(Arrays.asList(tshohin, tbunrui));
         print(sc, "select id, name from shohin where price between 130 and 200 or id=1");
         print(sc, "select id, name from shohin where price between 130 and 200");
+        System.out.println("普通のJOIN");
         print(sc, "select shohin.id, shohin.name,bunrui.name"
                 + " from shohin left join bunrui on shohin.bunrui_id=bunrui.id");
+        System.out.println("常に真なので条件省略");
+        print(sc, "select id, name from shohin where 2 < 3");
+        System.out.println("常に偽なので空になる");
+        print(sc, "select id, name from shohin where price < 130 and 2 > 3");
+        System.out.println("メインテーブルのみに関係のある条件はJOINの前に適用");
+        print(sc, "select shohin.id, shohin.name,bunrui.name"
+                + " from shohin left join bunrui on shohin.bunrui_id=bunrui.id"
+                + " where shohin.price <= 300 and bunrui.seisen=1");
     }
 }
