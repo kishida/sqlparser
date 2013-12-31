@@ -93,12 +93,17 @@ public class SqlAnalizer {
         }
     }
     
-    @AllArgsConstructor @ToString
+    @AllArgsConstructor
     public static class TernaryOp implements SqlValue{
         SqlValue cond;
         SqlValue first;
         SqlValue sec;
         String op;
+        
+        @Override
+        public String toString() {
+            return String.format("%s %s:%s:%s", op, cond, first, sec);
+        }
     }
     
     public static SqlValue wrap(Optional<?> o){
