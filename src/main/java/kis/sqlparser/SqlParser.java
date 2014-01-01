@@ -10,6 +10,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import lombok.AllArgsConstructor;
 import lombok.ToString;
 import org.codehaus.jparsec.Parser;
@@ -158,12 +160,11 @@ public class SqlParser {
     }
     
     public static Parser<ASTSelect> select(){
-        return terms.token("select").next(Parsers.or(terms.token("*").map(t -> Arrays.asList(new ASTWildcard())), value().next(top -> terms.token(",").next(value()).many().map(l -> {
-            ArrayList<AST> cols = new ArrayList<>();
-            cols.add(top);
-            cols.addAll(l);
-            return cols;
-        })))).map(l -> new ASTSelect(l));
+        return terms.token("select").next(Parsers.or(
+                terms.token("*").map(t -> Arrays.asList(new ASTWildcard())), 
+                value().next(top -> terms.token(",").next(value()).many()
+            .map(l -> Stream.concat(Stream.of(top), l.stream()).collect(Collectors.toList())
+        )))).map(l -> new ASTSelect(l));
     }
     
     // table := identifier
@@ -176,7 +177,9 @@ public class SqlParser {
     }
     
     public static Parser<ASTJoin> join(){
-        return terms.phrase("left", "join").next(identifier().next(t -> terms.token("on").next(logic()).map(lg -> new ASTJoin(t, lg))));
+        return terms.phrase("left", "join")
+                .next(identifier().next(t -> terms.token("on")
+                        .next(logic()).map(lg -> new ASTJoin(t, lg))));
     }
     
     // from := "from" table join*
@@ -187,7 +190,8 @@ public class SqlParser {
     }
     
     public static Parser<ASTFrom> from(){
-        return terms.token("from").next(identifier().next(t -> join().many().map(j -> new ASTFrom(t, j))));
+        return terms.token("from").next(identifier()
+                .next(t -> join().many().map(j -> new ASTFrom(t, j))));
     }
     // where := "where" logic
     public static Parser<AST> where(){
@@ -202,7 +206,8 @@ public class SqlParser {
         Optional<? extends AST> where;
     }
     public static Parser<ASTSql> sql(){
-        return select().next(s -> from().next(f -> where().optional().map(w -> new ASTSql(s, f, Optional.ofNullable(w)))));
+        return select().next(s -> from().next(f -> where().optional()
+                .map(w -> new ASTSql(s, f, Optional.ofNullable(w)))));
     }
     
     public static Parser<ASTSql> parser(){
