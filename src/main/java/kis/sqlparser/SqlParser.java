@@ -6,8 +6,8 @@
 
 package kis.sqlparser;
 
-import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -25,11 +25,11 @@ import org.codehaus.jparsec.Terminals;
  */
 public class SqlParser {
     static final String[] keywords = {
-        "between", "and", "or", "select", "from", "left", "join", "on", "where"
+        "between", "and", "or", "select", "from", "left", "join", "on", "where", "insert", "into", "values"
     };
     
     static final String[] operators = {
-        "=", "<", ">", "<=", ">=", ".", "*", ","
+        "=", "<", ">", "<=", ">=", ".", "*", ",", "(", ")"
     };
     
     static final Terminals terms = Terminals.caseInsensitive(operators, keywords);
@@ -198,19 +198,50 @@ public class SqlParser {
         return terms.token("where").next(logic());
     }
     
-    // sql := select from where?
+    // selectStatement := select from where?
     @AllArgsConstructor @ToString
     public static class ASTSql implements AST{
         ASTSelect select;
         ASTFrom from;
         Optional<? extends AST> where;
     }
-    public static Parser<ASTSql> sql(){
+    public static Parser<ASTSql> selectStatement(){
         return select().next(s -> from().next(f -> where().optional()
                 .map(w -> new ASTSql(s, f, Optional.ofNullable(w)))));
     }
+
+    // insertField := "(" identity ("," identity)* ")"
+    public static Parser<List<ASTIdent>> insertField(){
+        return Parsers.between(
+                terms.token("("), 
+                identifier().sepBy1(terms.token(",")) , 
+                terms.token(")"));
+    }
+    
+    public static Parser<List<AST>> insertValues(){
+        return Parsers.between(
+                terms.token("("), 
+                Parsers.or(integer(), str()).sepBy1(terms.token(",")), 
+                terms.token(")"));
+    }
+    
+    // insert := "insert" "into" table insertField? "values" insertValues ("," insertValues)*
+    @AllArgsConstructor @ToString
+    public static class ASTInsert implements AST{
+        ASTIdent table;
+        Optional<List<ASTIdent>> field;
+        List<List<AST>> value;
+    }
+    
+    public static Parser<ASTInsert> insert(){
+        return terms.phrase("insert", "into").next(
+                identifier()).next(tb -> insertField().optional().next(f -> 
+                    terms.token("values").next(insertValues().sepBy1(terms.token(","))
+                        .map(v -> new ASTInsert(tb, Optional.ofNullable(f), v)))));
+    }
     
     public static Parser<ASTSql> parser(){
-        return sql().from(tokenizer, ignored);
+        return selectStatement().from(tokenizer, ignored);
     }
+    
 }

@@ -6,6 +6,7 @@
 
 package kis.sqlparser;
 
+import java.util.List;
 import org.codehaus.jparsec.Parser;
 import static org.hamcrest.CoreMatchers.*;
 import static org.junit.Assert.assertThat;
@@ -67,10 +68,32 @@ public class SqlParserTest {
     }
     
     @Test
-    public void sql全体(){
-        Parser<SqlParser.ASTSql> parser = SqlParser.sql().from(SqlParser.tokenizer, SqlParser.ignored);
+    public void selectsql全体(){
+        Parser<SqlParser.ASTSql> parser = SqlParser.selectStatement().from(SqlParser.tokenizer, SqlParser.ignored);
         System.out.println(parser.parse("select * from shohin where id=3"));
         System.out.println(parser.parse("select * from shohin left join bunrui on shohin.bunrui_id=bunrui.id where id=3"));
         System.out.println(parser.parse("select id, name from shohin"));
+    }
+    
+    @Test
+    public void insertField(){
+        Parser<List<SqlParser.ASTIdent>> parser = SqlParser.insertField().from(SqlParser.tokenizer, SqlParser.ignored);
+        System.out.println(parser.parse("(id, name)"));
+    }
+    
+    @Test
+    public void insertValue(){
+        Parser<List<SqlParser.AST>> parser = SqlParser.insertValues().from(SqlParser.tokenizer, SqlParser.ignored);
+        System.out.println(parser.parse("(1, 'test')"));
+        System.out.println(parser.parse("(3, 'test', 2, 'hoge')"));
+    }
+    
+    @Test
+    public void insert(){
+        Parser<SqlParser.ASTInsert> parser = SqlParser.insert().from(SqlParser.tokenizer, SqlParser.ignored);
+        System.out.println(parser.parse("insert into shohin(id, name) values(1, 'hoge')"));
+        System.out.println(parser.parse("insert into shohin values(1, 'hoge')"));
+        System.out.println(parser.parse("insert into shohin values(1, 'hoge'), (2, 'foo')"));
+        
     }
 }
