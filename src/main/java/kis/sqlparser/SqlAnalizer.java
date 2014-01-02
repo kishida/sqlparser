@@ -18,6 +18,7 @@ import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import static kis.sqlparser.ObjectPatternMatch.*;
 import kis.sqlparser.SqlParser.*;
+import kis.sqlparser.Table.Tuple;
 import lombok.AllArgsConstructor;
 import lombok.ToString;
 import org.codehaus.jparsec.Parser;
@@ -129,7 +130,7 @@ public class SqlAnalizer {
         
     }
     
-    public static SqlValue eval(SqlValue value, Map<Column, Integer> colIndex, List<Optional<?>> row){
+    public static SqlValue eval(SqlValue value, Map<Column, Integer> colIndex, Tuple tuple){
         return matchRet(value, 
             caseOfRet(StringValue.class, s -> s),
             caseOfRet(BooleanValue.class, b -> b),
@@ -138,11 +139,11 @@ public class SqlAnalizer {
             caseOfRet(FieldValue.class, f -> {
                 int idx = colIndex.getOrDefault(f.column, -1);
                 if(idx < 0) throw new RuntimeException(f.column + " not found.");
-                return wrap(row.get(idx));
+                return wrap(tuple.row.get(idx));
             }),
             caseOfRet(BinaryOp.class, bin -> {
-                SqlValue left = eval(bin.left, colIndex, row);
-                SqlValue right = eval(bin.right, colIndex, row);
+                SqlValue left = eval(bin.left, colIndex, tuple);
+                SqlValue right = eval(bin.right, colIndex, tuple);
                 if(left instanceof NullValue || right instanceof NullValue){
                     return new NullValue();
                 }
@@ -191,9 +192,9 @@ public class SqlAnalizer {
                 if(!"between".equals(ter.op)){
                     throw new RuntimeException(ter.op + " is not supported");
                 }
-                SqlValue cond = eval(ter.cond, colIndex, row);
-                SqlValue first = eval(ter.first, colIndex, row);
-                SqlValue sec = eval(ter.sec, colIndex, row);
+                SqlValue cond = eval(ter.cond, colIndex, tuple);
+                SqlValue first = eval(ter.first, colIndex, tuple);
+                SqlValue sec = eval(ter.sec, colIndex, tuple);
                 if(cond instanceof IntValue && first instanceof IntValue && sec instanceof IntValue){
                     int icond = ((IntValue)cond).value;
                     int ifirst = ((IntValue)first).value;
@@ -216,7 +217,7 @@ public class SqlAnalizer {
 
     public static abstract class QueryPlan{
         abstract List<Column> getColumns();
-        abstract Records<List<Optional<?>>> records();
+        abstract Records<Tuple> records();
         Optional<NodePlan> to;
 
         public QueryPlan() {
@@ -277,24 +278,25 @@ public class SqlAnalizer {
         }
 
         @Override
-        Records<List<Optional<?>>> records() {
-            Records<List<Optional<?>>> records = from.records();
+        Records<Tuple> records() {
+            Records<Tuple> records = from.records();
             Map<Column, Integer> columnIndex = from.getColumnIndex();
             
             return () -> {
-                Optional<List<Optional<?>>> line = records.next();
+                Optional<Tuple> line = records.next();
                 if(!line.isPresent()) return line;
 
-                return Optional.of(values.stream().flatMap(c -> {
+                List<Optional<?>> row = values.stream().flatMap(c -> {
                     if(c instanceof Wildcard){
                         return from.getColumns().stream().map(FieldValue::new);
                     }else{
                         return Stream.of(c);
                     }
                 })
-                    .map(c -> eval(c, columnIndex, line.get()))
-                    .map(v -> unwrap(v))
-                    .collect(Collectors.toList()));
+                        .map(c -> eval(c, columnIndex, line.get()))
+                        .map(v -> unwrap(v))
+                        .collect(Collectors.toList());
+                return Optional.of(new Tuple(row));
             };        
         }
 
@@ -322,13 +324,13 @@ public class SqlAnalizer {
         }
 
         @Override
-        Records<List<Optional<?>>> records() {
-            Records<List<Optional<?>>> records = from.records();
+        Records<Tuple> records() {
+            Records<Tuple> records = from.records();
             Map<Column, Integer> columnIndex = from.getColumnIndex();
             
             return () -> {
-                for(Optional<List<Optional<?>>> optLine; (optLine = records.next()).isPresent();){
-                    List<Optional<?>> line = optLine.get();
+                for(Optional<Tuple> optLine; (optLine = records.next()).isPresent();){
+                    Tuple line = optLine.get();
                     boolean allTrue = conds.stream()
                             .map(cond -> eval(cond, columnIndex, line))
                             .allMatch(val -> val instanceof BooleanValue && ((BooleanValue)val).value);
@@ -359,7 +361,7 @@ public class SqlAnalizer {
         }
 
         @Override
-        Records<List<Optional<?>>> records() {
+        Records<Tuple> records() {
             return () -> Optional.empty();
         }
 
@@ -382,16 +384,16 @@ public class SqlAnalizer {
         }
 
         @Override
-        Records<List<Optional<?>>> records() {
-            Iterator<List<Optional<?>>> ite = table.data.iterator();
+        Records<Tuple> records() {
+            Iterator<Tuple> ite = table.data.iterator();
             return () -> {
                 if(!ite.hasNext()) return Optional.empty();
-                List<Optional<?>> line = ite.next();
+                Tuple tuple = ite.next();
                 return Optional.of(
-                        Stream.concat(
-                                line.stream(),
-                                IntStream.range(0, getColumns().size() - line.size()).mapToObj(i -> Optional.empty()))
-                                .collect(Collectors.toList()));
+                        new Tuple(Stream.concat(
+                                tuple.row.stream(),
+                                IntStream.range(0, getColumns().size() - tuple.row.size()).mapToObj(i -> Optional.empty()))
+                                .collect(Collectors.toList())));
             };
         }
 
@@ -417,27 +419,27 @@ public class SqlAnalizer {
         }
 
         @Override
-        Records<List<Optional<?>>> records() {
-            Records<List<Optional<?>>> records = from.records();
+        Records<Tuple> records() {
+            Records<Tuple> records = from.records();
             Map<Column, Integer> columnIndex = getColumnIndex();
             return () -> {
-                Optional<List<Optional<?>>> optLine = records.next();
+                Optional<Tuple> optLine = records.next();
                 if(!optLine.isPresent()) return optLine;
-                List<Optional<?>> line = optLine.get();
-                Records<List<Optional<?>>> srec = secondary.records();
-                for(Optional<List<Optional<?>>> sline;(sline = srec.next()).isPresent();){
-                    List<Optional<?>> joinline = Stream.concat(
-                            line.stream(), sline.get().stream())
-                            .collect(Collectors.toList());
+                Tuple line = optLine.get();
+                Records<Tuple> srec = secondary.records();
+                for(Optional<Tuple> sline;(sline = srec.next()).isPresent();){
+                    Tuple joinline = new Tuple(Stream.concat(
+                            line.row.stream(), sline.get().row.stream())
+                            .collect(Collectors.toList()));
                     SqlValue v = eval(cond, columnIndex, joinline);
                     if(v instanceof BooleanValue && ((BooleanValue)v).value){
                         return Optional.of(joinline);
                     }
                 }
-                return Optional.of(Stream.concat(
-                        line.stream(),
+                return Optional.of(new Tuple(Stream.concat(
+                        line.row.stream(),
                         IntStream.range(0, secondary.getColumns().size()).mapToObj(i -> Optional.empty()))
-                        .collect(Collectors.toList()));
+                        .collect(Collectors.toList())));
             };
         }
         
@@ -690,10 +692,10 @@ public class SqlAnalizer {
         plan = optimize(sc, plan);
         System.out.println("論理最適化:" + plan);
         
-        Records<List<Optional<?>>> rec = plan.records();
-        for(Optional<List<Optional<?>>> line; (line = rec.next()).isPresent();){
+        Records<Tuple> rec = plan.records();
+        for(Optional<Tuple> line; (line = rec.next()).isPresent();){
             line.ifPresent(l -> {
-                System.out.println(l.stream()
+                System.out.println(l.row.stream()
                         .map(o -> o.map(v -> v.toString()).orElse("null"))
                         .collect(Collectors.joining(",", "[", "]")));
             });

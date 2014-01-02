@@ -11,16 +11,21 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import lombok.AllArgsConstructor;
 
 /**
  *
  * @author naoki
  */
 public class Table {
+    @AllArgsConstructor
+    public static class Tuple{
+        List<Optional<?>> row;
+    }
     String name;
     List<Column> columns;
     
-    List<List<Optional<?>>> data;
+    List<Tuple> data;
     
     public Table(String name, List<Column> columns){
         this.name = name;
@@ -34,9 +39,9 @@ public class Table {
         if(columns.size() < values.length){
             throw new RuntimeException("values count is over the number of columns");
         }
-        data.add(Arrays.stream(values)
+        data.add(new Tuple(Arrays.stream(values)
                 .map(Optional::ofNullable)
-                .collect(Collectors.toList()));
+                .collect(Collectors.toList())));
         return this;
     }
 }
