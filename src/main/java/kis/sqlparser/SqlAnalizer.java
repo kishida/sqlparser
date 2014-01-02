@@ -228,10 +228,8 @@ public class SqlAnalizer {
         }
         
         Map<Column, Integer> getColumnIndex(){
-            Map m = new HashMap<>();
             Counter c = new Counter();
-            getColumns().stream().forEach(col -> m.put(col, c.getCount() - 1));
-            return m;
+            return getColumns().stream().collect(Collectors.toMap(col -> col, col -> c.getCount() - 1));
         }
         
     }
@@ -653,10 +651,40 @@ public class SqlAnalizer {
         return plan;
     }
     
-    public static void print(Schema sc, String sqlstr){
-        Parser<SqlParser.ASTSql> parser = SqlParser.parser();
-        SqlParser.ASTSql sql = parser.parse(sqlstr);
-        SelectPlan plan = analize(sc, sql);
+    public static void insert(Schema sc, ASTInsert insert){
+        Table t = sc.find(insert.table.ident)
+                .orElseThrow(() -> new RuntimeException(
+                        String.format("table %s not found.", insert.table.ident)));
+        
+        Counter c = new Counter();
+        Map<String, Integer> cols = t.columns.stream()
+                .collect(Collectors.toMap(col -> col.name, col -> c.getCount() - 1));
+        int[] indexes;
+        if(insert.field.isPresent()){
+            indexes = insert.field.get().stream().mapToInt(id -> cols.get(id.ident)).toArray();
+        }else{
+            indexes = IntStream.range(0, t.columns.size()).toArray();
+        }
+        insert.value.stream().forEach(ro -> {
+            Object[] row = new Object[t.columns.size()];
+            for(int i = 0; i < ro.size(); ++i){
+                row[indexes[i]] = unwrap(validate(null, ro.get(i))).orElse(null);
+            }
+            t.insert(row);
+        });
+    }
+    
+    public static void exec(Schema sc, String sqlstr){
+        Parser<SqlParser.AST> parser = SqlParser.parser();
+        SqlParser.AST sql = parser.parse(sqlstr);
+        if(sql instanceof ASTInsert){
+            insert(sc, (ASTInsert) sql);
+            return;
+        }else if(!(sql instanceof ASTSql)){
+            return;
+        }
+        ASTSql select = (ASTSql) sql;
+        SelectPlan plan = analize(sc, select);
         System.out.println(sqlstr);
         System.out.println("初期プラン:" + plan);
         plan = optimize(sc, plan);
@@ -690,17 +718,23 @@ public class SqlAnalizer {
             .insert(5, "パソコン", 0, 34800);
         
         Schema sc = new Schema(Arrays.asList(tshohin, tbunrui));
-        print(sc, "select id, name from shohin where price between 130 and 200 or id=1");
-        print(sc, "select id, name from shohin where price between 130 and 200");
+        exec(sc, "insert into bunrui values(4, '周辺機器', 2)");
+        exec(sc, "insert into bunrui(name, id) values('酒', 5 )");
+        exec(sc, "insert into bunrui(id, name) values(6, 'ビール' )");
+        exec(sc, "insert into bunrui(id, name, seisen) values(7, '麺', 2), (8, '茶', 2)");
+        exec(sc, "select * from bunrui");
+        
+        exec(sc, "select id, name from shohin where price between 130 and 200 or id=1");
+        exec(sc, "select id, name from shohin where price between 130 and 200");
         System.out.println("普通のJOIN");
-        print(sc, "select shohin.id, shohin.name,bunrui.name"
+        exec(sc, "select shohin.id, shohin.name,bunrui.name"
                 + " from shohin left join bunrui on shohin.bunrui_id=bunrui.id");
         System.out.println("常に真なので条件省略");
-        print(sc, "select id, name from shohin where 2 < 3");
+        exec(sc, "select id, name from shohin where 2 < 3");
         System.out.println("常に偽なので空になる");
-        print(sc, "select id, name from shohin where price < 130 and 2 > 3");
+        exec(sc, "select id, name from shohin where price < 130 and 2 > 3");
         System.out.println("メインテーブルのみに関係のある条件はJOINの前に適用");
-        print(sc, "select shohin.id, shohin.name,bunrui.name"
+        exec(sc, "select shohin.id, shohin.name,bunrui.name"
                 + " from shohin left join bunrui on shohin.bunrui_id=bunrui.id"
                 + " where shohin.price <= 300 and bunrui.seisen=1");
     }

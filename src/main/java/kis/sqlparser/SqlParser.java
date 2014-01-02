@@ -240,8 +240,8 @@ public class SqlParser {
                         .map(v -> new ASTInsert(tb, Optional.ofNullable(f), v)))));
     }
     
-    public static Parser<ASTSql> parser(){
-        return selectStatement().from(tokenizer, ignored);
+    public static Parser<AST> parser(){
+        return Parsers.or(selectStatement(), insert()).from(tokenizer, ignored);
     }
     
 }
