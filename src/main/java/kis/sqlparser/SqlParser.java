@@ -7,13 +7,11 @@
 package kis.sqlparser;
 
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 import lombok.AllArgsConstructor;
 import lombok.ToString;
+import org.codehaus.jparsec.OperatorTable;
 import org.codehaus.jparsec.Parser;
 import org.codehaus.jparsec.Parsers;
 import org.codehaus.jparsec.Scanners;
@@ -132,22 +130,11 @@ public class SqlParser {
         AST cond;
     }
     
-    static AST fold(AST left, List<Cont> rest){
-        if(rest.isEmpty()){
-            return left;
-        }else{
-            AST l = left;
-            for(Cont c : rest){
-                l = new ASTLogic(l, c.cond, c.op);
-            }
-            return l;
-        }
-    }
-    
     public static Parser<AST> logic(){
-        return cond().next(c -> 
-                terms.token("and", "or").source().next(op -> 
-                        cond().map(r -> new Cont(op, r))).many().map(l -> fold(c, l)));
+        return new OperatorTable<AST>()
+                .infixl(terms.token("and").retn((l, r) -> new ASTLogic(l, r, "and")), 1)
+                .infixl(terms.token("or").retn((l, r) -> new ASTLogic(l, r, "or")), 1)
+                .build(cond());
     }
     
     // select := "select" value ("," value)*
@@ -162,9 +149,8 @@ public class SqlParser {
     public static Parser<ASTSelect> select(){
         return terms.token("select").next(Parsers.or(
                 terms.token("*").map(t -> Arrays.asList(new ASTWildcard())), 
-                value().next(top -> terms.token(",").next(value()).many()
-            .map(l -> Stream.concat(Stream.of(top), l.stream()).collect(Collectors.toList())
-        )))).map(l -> new ASTSelect(l));
+                value().sepBy1(terms.token(","))
+        )).map(l -> new ASTSelect(l));
     }
     
     // table := identifier
@@ -234,14 +220,15 @@ public class SqlParser {
     }
     
     public static Parser<ASTInsert> insert(){
-        return terms.phrase("insert", "into").next(
-                identifier()).next(tb -> insertField().optional().next(f -> 
-                    terms.token("values").next(insertValues().sepBy1(terms.token(","))
-                        .map(v -> new ASTInsert(tb, Optional.ofNullable(f), v)))));
+        return Parsers.sequence(
+                terms.phrase("insert", "into").next(identifier()),
+                insertField().optional(),
+                terms.token("values").next(insertValues().sepBy1(terms.token(","))),
+                (tb, f, v) -> new ASTInsert(tb, Optional.ofNullable(f), v));
     }
     
     public static Parser<AST> parser(){
         return Parsers.or(selectStatement(), insert()).from(tokenizer, ignored);
     }
-    
+
 }

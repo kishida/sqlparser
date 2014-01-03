@@ -7,12 +7,12 @@
 package kis.sqlparser;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import kis.sqlparser.SqlAnalizer.*;
+import kis.sqlparser.Table.Tuple;
 import org.junit.Test;
 
 /**
@@ -30,9 +30,9 @@ public class SqlAnalizerTest {
         cols.put(new Column("test"), 0);
         cols.put(new Column("id"), 1);
         cols.put(new Column("name"), 2);
-        List<Optional<?>> collect = Stream.of(true, 123, "ほげ")
+        Tuple collect = new Tuple(Stream.of(true, 123, "ほげ")
                 .map(o -> Optional.of(o))
-                .collect(Collectors.toList());
+                .collect(Collectors.toList()));
         System.out.println(SqlAnalizer.eval(new IntValue(3), cols, collect));
         System.out.println(SqlAnalizer.eval(new BinaryOp(new IntValue(3), new IntValue(3), "="), cols, collect));
         System.out.println(SqlAnalizer.eval(new BinaryOp(new IntValue(2), new IntValue(3), "="), cols, collect));
