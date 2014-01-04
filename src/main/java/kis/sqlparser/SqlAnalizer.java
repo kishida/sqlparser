@@ -139,6 +139,7 @@ public class SqlAnalizer {
             caseOfRet(FieldValue.class, f -> {
                 int idx = colIndex.getOrDefault(f.column, -1);
                 if(idx < 0) throw new RuntimeException(f.column + " not found.");
+                if(idx >= tuple.row.size()) return new NullValue();
                 return wrap(tuple.row.get(idx));
             }),
             caseOfRet(BinaryOp.class, bin -> {
@@ -195,7 +196,9 @@ public class SqlAnalizer {
                 SqlValue cond = eval(ter.cond, colIndex, tuple);
                 SqlValue first = eval(ter.first, colIndex, tuple);
                 SqlValue sec = eval(ter.sec, colIndex, tuple);
-                if(cond instanceof IntValue && first instanceof IntValue && sec instanceof IntValue){
+                if(cond instanceof NullValue || first instanceof NullValue || sec instanceof NullValue){
+                    return new NullValue();
+                }else if(cond instanceof IntValue && first instanceof IntValue && sec instanceof IntValue){
                     int icond = ((IntValue)cond).value;
                     int ifirst = ((IntValue)first).value;
                     int isec = ((IntValue)sec).value;
@@ -371,6 +374,24 @@ public class SqlAnalizer {
         }
     }
     
+    public static class AdjustPlan extends NodePlan{
+
+        public AdjustPlan(QueryPlan from) {
+            super(from);
+        }
+        
+        @Override
+        List<Column> getColumns() {
+            return from.getColumns();
+        }
+
+        @Override
+        Records<Tuple> records() {
+            throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+        }
+        
+    }
+    
     public static class TablePlan extends QueryPlan{
         Table table;
 
@@ -389,11 +410,7 @@ public class SqlAnalizer {
             return () -> {
                 if(!ite.hasNext()) return Optional.empty();
                 Tuple tuple = ite.next();
-                return Optional.of(
-                        new Tuple(Stream.concat(
-                                tuple.row.stream(),
-                                IntStream.range(0, getColumns().size() - tuple.row.size()).mapToObj(i -> Optional.empty()))
-                                .collect(Collectors.toList())));
+                return Optional.of(tuple);
             };
         }
 
@@ -437,7 +454,9 @@ public class SqlAnalizer {
                     }
                 }
                 return Optional.of(new Tuple(Stream.concat(
-                        line.row.stream(),
+                        Stream.concat(
+                                line.row.stream(),
+                                IntStream.range(0, getColumns().size() - line.row.size()).mapToObj(i -> Optional.empty())),
                         IntStream.range(0, secondary.getColumns().size()).mapToObj(i -> Optional.empty()))
                         .collect(Collectors.toList())));
             };
@@ -711,13 +730,15 @@ public class SqlAnalizer {
         tbunrui
             .insert(1, "野菜", 1)
             .insert(2, "くだもの", 1)
-            .insert(3, "菓子", 2);
+            .insert(3, "菓子", 2)
+            .insert(9, "団子");
         tshohin
             .insert(1, "りんご", 2, 250)
             .insert(2, "キャベツ", 1, 200)
             .insert(3, "たけのこの", 3, 150)
             .insert(4, "きのこ", 3, 120)
-            .insert(5, "パソコン", 0, 34800);
+            .insert(5, "パソコン", 0, 34800)
+            .insert(6, "のこぎり");
         
         Schema sc = new Schema(Arrays.asList(tshohin, tbunrui));
         exec(sc, "insert into bunrui values(4, '周辺機器', 2)");
