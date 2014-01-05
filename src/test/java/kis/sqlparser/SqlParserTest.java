@@ -110,5 +110,17 @@ public class SqlParserTest {
         System.out.println(parser.parse("update shohin set name='test' where id=2"));
         System.out.println(parser.parse("update shohin set name='test', seisen=1"));
         System.out.println(parser.parse("update shohin set name='test', seisen=1 where id=2"));
+        System.out.println(parser.parse("update shohin set name='test', price=price+1 where id=2"));
+    }
+    
+    @Test
+    public void expression(){
+        Parser<SqlParser.AST> parser = SqlParser.expression().from(SqlParser.tokenizer, SqlParser.ignored);
+        System.out.println(parser.parse("12+3*4"));
+        System.out.println(parser.parse("price+3*4"));
+        System.out.println(parser.parse("bunrui.price+3*4"));
+        System.out.println(parser.parse("12"));
+        System.out.println(parser.parse("price"));
+        System.out.println(parser.parse("bunrui.price"));
     }
 }

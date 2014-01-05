@@ -27,7 +27,7 @@ public class SqlParser {
     };
     
     static final String[] operators = {
-        "=", "<", ">", "<=", ">=", ".", "*", ",", "(", ")"
+        "=", "<", ">", "<=", ">=", ".", "*", ",", "(", ")", "+", "-", "/"
     };
     
     static final Terminals terms = Terminals.caseInsensitive(operators, keywords);
@@ -83,6 +83,15 @@ public class SqlParser {
         return Parsers.or(fqn(), identifier(), integer(), str());
     }
     
+    public static Parser<AST> expression(){
+        return new OperatorTable<AST>()
+                .infixl(terms.token("+").retn((l, r) -> new ASTCond(l, r, "+")), 10)
+                .infixl(terms.token("-").retn((l, r) -> new ASTCond(l, r, "-")), 10)
+                .infixl(terms.token("/").retn((l, r) -> new ASTCond(l, r, "/")), 20)
+                .infixl(terms.token("*").retn((l, r) -> new ASTCond(l, r, "*")), 20)
+                .build(value());
+    }
+    
     // bicond := value ("=" | "<" | "<=" | ">" | ">=) value
     @AllArgsConstructor @ToString
     public static class ASTCond implements AST{
@@ -92,10 +101,10 @@ public class SqlParser {
     }
     
     public static Parser<ASTCond> bicond(){
-        return value().next(l -> 
+        return expression().next(l -> 
                 terms.token("=", "<", "<=", ">", ">=").source()
                         .next(op -> 
-                value().map(r -> new ASTCond(l, r, op))));
+                expression().map(r -> new ASTCond(l, r, op))));
     }
     
     // between := value "between" value "and" value
@@ -107,9 +116,9 @@ public class SqlParser {
     }
     
     public static Parser<ASTBetween> between(){
-        return value().next(o ->
-            terms.token("between").next(value()).next(st -> 
-                    terms.token("and").next(value()).map(ed -> 
+        return expression().next(o ->
+            terms.token("between").next(expression()).next(st -> 
+                    terms.token("and").next(expression()).map(ed -> 
                             new ASTBetween(o, st, ed))));
     }
     // cond := bicond | between
@@ -149,7 +158,7 @@ public class SqlParser {
     public static Parser<ASTSelect> select(){
         return terms.token("select").next(Parsers.or(
                 terms.token("*").map(t -> Arrays.asList(new ASTWildcard())), 
-                value().sepBy1(terms.token(","))
+                expression().sepBy1(terms.token(","))
         )).map(l -> new ASTSelect(l));
     }
     
@@ -251,7 +260,7 @@ public class SqlParser {
     public static Parser<ASTUpdateValue> updateValue(){
         return Parsers.sequence(
                 identifier(),
-                terms.token("=").next(value()),
+                terms.token("=").next(expression()),
                 (id, v) -> new ASTUpdateValue(id, v));
     }
     

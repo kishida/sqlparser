@@ -181,8 +181,26 @@ public class SqlAnalizer {
                         case ">=":
                             ret = ileft >= iright;
                             break;
-                        default:
-                            throw new RuntimeException("[" +op + "] operator is not supported");
+                        default:{
+                            int iret;
+                            switch(op){
+                                case "+":
+                                    iret = ileft + iright;
+                                    break;
+                                case "-":
+                                    iret = ileft - iright;
+                                    break;
+                                case "*":
+                                    iret = ileft * iright;
+                                    break;
+                                case "/":
+                                    iret = ileft / iright;
+                                    break;
+                            default:
+                                throw new RuntimeException("[" +op + "] operator is not supported");
+                            }
+                            return new IntValue(iret);
+                        }
                     }
                     return new BooleanValue(ret);
                 }else{
@@ -746,7 +764,7 @@ public class SqlAnalizer {
         exec(sc, "insert into bunrui(id, name) values(6, 'ビール' )");
         exec(sc, "insert into bunrui(id, name, seisen) values(7, '麺', 2), (8, '茶', 2)");
         exec(sc, "select * from bunrui");
-        
+        exec(sc, "select id,name,price,price*2 from shohin");
         exec(sc, "select id, name from shohin where price between 130 and 200 or id=1");
         exec(sc, "select id, name from shohin where price between 130 and 200");
         System.out.println("普通のJOIN");
