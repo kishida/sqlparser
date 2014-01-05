@@ -23,7 +23,7 @@ import org.codehaus.jparsec.Terminals;
  */
 public class SqlParser {
     static final String[] keywords = {
-        "between", "and", "or", "select", "from", "left", "join", "on", "where", "insert", "into", "values"
+        "between", "and", "or", "select", "from", "left", "join", "on", "where", "insert", "into", "values", "update", "set"
     };
     
     static final String[] operators = {
@@ -226,6 +226,51 @@ public class SqlParser {
                 terms.token("values").next(insertValues().sepBy1(terms.token(","))),
                 (tb, f, v) -> new ASTInsert(tb, Optional.ofNullable(f), v));
     }
+    
+    @AllArgsConstructor
+    public static class ASTDelete implements AST{
+        ASTIdent table;
+        Optional<AST> where;
+    }
+    
+    public static Parser<ASTDelete> delete(){
+        return Parsers.sequence(
+                terms.token("delete").next(terms.token("*").optional())
+                        .next(terms.token("from")).next(identifier()),
+                where().optional(),
+                (id, w) -> new ASTDelete(id, Optional.ofNullable(w)));
+    }
+    
+    // insertValue := ident "=" value
+    @AllArgsConstructor @ToString
+    public static class ASTUpdateValue implements AST{
+        ASTIdent field;
+        AST value;
+    }
+    
+    public static Parser<ASTUpdateValue> updateValue(){
+        return Parsers.sequence(
+                identifier(),
+                terms.token("=").next(value()),
+                (id, v) -> new ASTUpdateValue(id, v));
+    }
+    
+    // update := "update" table "set" updateValue ("," updateValue)* where
+    @AllArgsConstructor @ToString
+    public static class ASTUpdate implements AST{
+        ASTIdent table;
+        List<ASTUpdateValue> values;
+        Optional<AST> where;
+    }
+    
+    public static Parser<ASTUpdate> update(){
+        return Parsers.sequence(
+                terms.token("update").next(identifier()),
+                terms.token("set").next(updateValue().sepBy1(terms.token(","))),
+                where().optional(),
+                (tbl, values, where) -> new ASTUpdate(tbl, values, Optional.ofNullable(where)));
+    }
+    
     
     public static Parser<AST> parser(){
         return Parsers.or(selectStatement(), insert()).from(tokenizer, ignored);

@@ -96,4 +96,19 @@ public class SqlParserTest {
         System.out.println(parser.parse("insert into shohin values(1, 'hoge'), (2, 'foo')"));
         
     }
+    @Test
+    public void updateValue(){
+        Parser<SqlParser.ASTUpdateValue> parser = SqlParser.updateValue().from(SqlParser.tokenizer, SqlParser.ignored);
+        System.out.println(parser.parse("id=23"));
+        System.out.println(parser.parse("name='abc'"));
+    }
+    
+    @Test
+    public void update(){
+        Parser<SqlParser.ASTUpdate> parser = SqlParser.update().from(SqlParser.tokenizer, SqlParser.ignored);
+        System.out.println(parser.parse("update shohin set name='test'"));
+        System.out.println(parser.parse("update shohin set name='test' where id=2"));
+        System.out.println(parser.parse("update shohin set name='test', seisen=1"));
+        System.out.println(parser.parse("update shohin set name='test', seisen=1 where id=2"));
+    }
 }
