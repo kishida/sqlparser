@@ -30,7 +30,7 @@ public class SqlAnalizerTest {
         cols.put(new Column("test"), 0);
         cols.put(new Column("id"), 1);
         cols.put(new Column("name"), 2);
-        Tuple collect = new Tuple(Stream.of(true, 123, "ほげ")
+        Tuple collect = new Tuple(1, Stream.of(true, 123, "ほげ")
                 .map(o -> Optional.of(o))
                 .collect(Collectors.toList()));
         System.out.println(SqlAnalizer.eval(new IntValue(3), cols, collect));
