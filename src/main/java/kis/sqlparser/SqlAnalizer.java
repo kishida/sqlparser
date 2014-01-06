@@ -6,6 +6,7 @@
 
 package kis.sqlparser;
 
+import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -738,12 +739,54 @@ public class SqlAnalizer {
         }
         t.delete(deletes);
     }
-    
+    public static void update(Schema sc, ASTUpdate update){
+        Table t = sc.find(update.table.ident)
+                .orElseThrow(() -> new RuntimeException(
+                        String.format("table %s not found.", update.table.ident)));
+        Map<String, Table> env = new HashMap<>();
+        env.put(update.table.ident, t);
+        QueryPlan primary = new TablePlan(t);
+
+        if(update.where.isPresent()){
+            SqlValue cond = update.where.map(a -> validate(env, a)).get();
+            List<SqlValue> ands = new ArrayList<>();
+            if(hasOr(cond)){
+                ands.add(cond);
+            }else{
+                andSerialize(ands, cond);
+            }
+            primary = new FilterPlan(primary, ands);
+        }
+        Counter c = new Counter();
+        Map<String, Integer> cols = t.columns.stream()
+                .collect(Collectors.toMap(col -> col.name, col -> c.getCount() - 1));
+        List<Map.Entry<Integer, SqlValue>> values = 
+                update.values.stream().map(v -> new AbstractMap.SimpleEntry<>(
+                        cols.get(v.field.ident), validate(env, v.value))).collect(Collectors.toList());
+        Map<Column, Integer> colIdx = primary.getColumnIndex();
+        Records<Tuple> rec = primary.records();
+        for(Optional<Tuple> oline; (oline = rec.next()).isPresent(); ){
+            Tuple line = oline.get();
+            List<Optional<?>> copy = new ArrayList<>(line.row);
+            while(copy.size() < t.columns.size()){
+                copy.add(Optional.empty());
+            }
+            
+            values.stream().forEach(me -> {
+                copy.set(me.getKey(), unwrap(eval(me.getValue(), colIdx, line)));
+            });
+            t.update(line.rid, copy);
+        }
+        
+    }
     public static void exec(Schema sc, String sqlstr){
         Parser<SqlParser.AST> parser = SqlParser.parser();
         SqlParser.AST sql = parser.parse(sqlstr);
         if(sql instanceof ASTInsert){
             insert(sc, (ASTInsert) sql);
+            return;
+        }else if(sql instanceof ASTUpdate){
+            update(sc, (ASTUpdate)sql);
             return;
         }else if(sql instanceof ASTDelete){
             delete(sc, (ASTDelete) sql);
@@ -808,6 +851,12 @@ public class SqlAnalizer {
         exec(sc, "select shohin.id, shohin.name,bunrui.name"
                 + " from shohin left join bunrui on shohin.bunrui_id=bunrui.id"
                 + " where shohin.price <= 300 and bunrui.seisen=1");
+        System.out.println("update");
+        exec(sc, "update shohin set price=1500 where id=6");
+        exec(sc, "update shohin set price=price+500 where id=5");
+        exec(sc, "select * from shohin where id=6 or id=5");
+        exec(sc, "update shohin set price=price*105/100");
+        exec(sc, "select * from shohin");
         System.out.println("削除");
         exec(sc, "delete from bunrui where id=9");
         exec(sc, "select * from bunrui");

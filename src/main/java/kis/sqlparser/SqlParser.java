@@ -282,7 +282,7 @@ public class SqlParser {
     
     
     public static Parser<AST> parser(){
-        return Parsers.or(selectStatement(), insert(), delete()).from(tokenizer, ignored);
+        return Parsers.or(selectStatement(), insert(), update(), delete()).from(tokenizer, ignored);
     }
 
 }

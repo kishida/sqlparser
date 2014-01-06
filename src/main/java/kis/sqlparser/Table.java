@@ -44,11 +44,16 @@ public class Table {
         ++rid;
         data.put(rid, new Tuple(rid,
                 Arrays.stream(values)
-                .map(Optional::ofNullable)
-                .collect(Collectors.toList())));
+                    .map(Optional::ofNullable)
+                    .collect(Collectors.toList())));
         return this;
     }
-    void delete(List<Tuple> get) {
-        get.stream().map(t -> t.rid).forEach(data::remove);
+
+    void update(long rid, List<Optional<?>> copy) {
+        data.get(rid).row = copy;
+    }
+
+    void delete(List<Tuple> row) {
+        row.stream().map(t -> t.rid).forEach(data::remove);
     }
 }
