@@ -317,7 +317,7 @@ public class SqlAnalizer {
                         .map(c -> eval(c, columnIndex, line.get()))
                         .map(v -> unwrap(v))
                         .collect(Collectors.toList());
-                return Optional.of(new Tuple(row));
+                return Optional.of(new Tuple(line.get().rid, row));
             };        
         }
 
@@ -424,7 +424,7 @@ public class SqlAnalizer {
 
         @Override
         Records<Tuple> records() {
-            Iterator<Tuple> ite = table.data.iterator();
+            Iterator<Tuple> ite = table.data.values().iterator();
             return () -> {
                 if(!ite.hasNext()) return Optional.empty();
                 Tuple tuple = ite.next();
@@ -463,7 +463,7 @@ public class SqlAnalizer {
                 Tuple line = optLine.get();
                 Records<Tuple> srec = secondary.records();
                 for(Optional<Tuple> sline;(sline = srec.next()).isPresent();){
-                    Tuple joinline = new Tuple(Stream.concat(
+                    Tuple joinline = new Tuple(0, Stream.concat(
                             line.row.stream(), sline.get().row.stream())
                             .collect(Collectors.toList()));
                     SqlValue v = eval(cond, columnIndex, joinline);
@@ -471,7 +471,7 @@ public class SqlAnalizer {
                         return Optional.of(joinline);
                     }
                 }
-                return Optional.of(new Tuple(Stream.concat(
+                return Optional.of(new Tuple(0, Stream.concat(
                         Stream.concat(
                                 line.row.stream(),
                                 IntStream.range(0, getColumns().size() - line.row.size()).mapToObj(i -> Optional.empty())),
@@ -713,11 +713,40 @@ public class SqlAnalizer {
         });
     }
     
+    public static void delete(Schema sc, ASTDelete del){
+        Table t = sc.find(del.table.ident)
+                .orElseThrow(() -> new RuntimeException(
+                        String.format("table %s not found.", del.table.ident)));
+        Map<String, Table> env = new HashMap<>();
+        env.put(del.table.ident, t);
+        QueryPlan primary = new TablePlan(t);
+
+        if(del.where.isPresent()){
+            SqlValue cond = del.where.map(a -> validate(env, a)).get();
+            List<SqlValue> ands = new ArrayList<>();
+            if(hasOr(cond)){
+                ands.add(cond);
+            }else{
+                andSerialize(ands, cond);
+            }
+            primary = new FilterPlan(primary, ands);
+        }
+        Records<Tuple> rec = primary.records();
+        List<Tuple> deletes = new ArrayList<>();
+        for(Optional<Tuple> line; (line = rec.next()).isPresent(); ){
+            deletes.add(line.get());
+        }
+        t.delete(deletes);
+    }
+    
     public static void exec(Schema sc, String sqlstr){
         Parser<SqlParser.AST> parser = SqlParser.parser();
         SqlParser.AST sql = parser.parse(sqlstr);
         if(sql instanceof ASTInsert){
             insert(sc, (ASTInsert) sql);
+            return;
+        }else if(sql instanceof ASTDelete){
+            delete(sc, (ASTDelete) sql);
             return;
         }else if(!(sql instanceof ASTSql)){
             return;
@@ -764,6 +793,7 @@ public class SqlAnalizer {
         exec(sc, "insert into bunrui(id, name) values(6, 'ビール' )");
         exec(sc, "insert into bunrui(id, name, seisen) values(7, '麺', 2), (8, '茶', 2)");
         exec(sc, "select * from bunrui");
+        
         exec(sc, "select id,name,price,price*2 from shohin");
         exec(sc, "select id, name from shohin where price between 130 and 200 or id=1");
         exec(sc, "select id, name from shohin where price between 130 and 200");
@@ -778,5 +808,11 @@ public class SqlAnalizer {
         exec(sc, "select shohin.id, shohin.name,bunrui.name"
                 + " from shohin left join bunrui on shohin.bunrui_id=bunrui.id"
                 + " where shohin.price <= 300 and bunrui.seisen=1");
+        System.out.println("削除");
+        exec(sc, "delete from bunrui where id=9");
+        exec(sc, "select * from bunrui");
+        System.out.println("全削除");
+        exec(sc, "delete from bunrui");
+        exec(sc, "select * from bunrui");
     }
 }

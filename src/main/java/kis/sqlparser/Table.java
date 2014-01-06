@@ -6,8 +6,8 @@
 
 package kis.sqlparser;
 
-import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -20,28 +20,35 @@ import lombok.AllArgsConstructor;
 public class Table {
     @AllArgsConstructor
     public static class Tuple{
+        long rid;
         List<Optional<?>> row;
     }
     String name;
     List<Column> columns;
+    static long rid;
     
-    List<Tuple> data;
+    LinkedHashMap<Long, Tuple> data;
     
     public Table(String name, List<Column> columns){
         this.name = name;
         this.columns = columns.stream()
                 .map(col -> new Column(this, col.name))
                 .collect(Collectors.toList());
-        this.data = new ArrayList<>();
+        this.data = new LinkedHashMap<>();
     }
     
     public Table insert(Object... values){
         if(columns.size() < values.length){
             throw new RuntimeException("values count is over the number of columns");
         }
-        data.add(new Tuple(Arrays.stream(values)
+        ++rid;
+        data.put(rid, new Tuple(rid,
+                Arrays.stream(values)
                 .map(Optional::ofNullable)
                 .collect(Collectors.toList())));
         return this;
+    }
+    void delete(List<Tuple> get) {
+        get.stream().map(t -> t.rid).forEach(data::remove);
     }
 }

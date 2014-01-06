@@ -23,7 +23,7 @@ import org.codehaus.jparsec.Terminals;
  */
 public class SqlParser {
     static final String[] keywords = {
-        "between", "and", "or", "select", "from", "left", "join", "on", "where", "insert", "into", "values", "update", "set"
+        "between", "and", "or", "select", "from", "left", "join", "on", "where", "insert", "into", "values", "update", "set", "delete"
     };
     
     static final String[] operators = {
@@ -282,7 +282,7 @@ public class SqlParser {
     
     
     public static Parser<AST> parser(){
-        return Parsers.or(selectStatement(), insert()).from(tokenizer, ignored);
+        return Parsers.or(selectStatement(), insert(), delete()).from(tokenizer, ignored);
     }
 
 }
