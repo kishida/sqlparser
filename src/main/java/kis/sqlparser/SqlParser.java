@@ -85,26 +85,26 @@ public class SqlParser {
     
     public static Parser<AST> expression(){
         return new OperatorTable<AST>()
-                .infixl(terms.token("+").retn((l, r) -> new ASTCond(l, r, "+")), 10)
-                .infixl(terms.token("-").retn((l, r) -> new ASTCond(l, r, "-")), 10)
-                .infixl(terms.token("/").retn((l, r) -> new ASTCond(l, r, "/")), 20)
-                .infixl(terms.token("*").retn((l, r) -> new ASTCond(l, r, "*")), 20)
+                .infixl(terms.token("+").retn((l, r) -> new ASTBinaryOp(l, r, "+")), 10)
+                .infixl(terms.token("-").retn((l, r) -> new ASTBinaryOp(l, r, "-")), 10)
+                .infixl(terms.token("/").retn((l, r) -> new ASTBinaryOp(l, r, "/")), 20)
+                .infixl(terms.token("*").retn((l, r) -> new ASTBinaryOp(l, r, "*")), 20)
                 .build(value());
     }
     
     // bicond := value ("=" | "<" | "<=" | ">" | ">=) value
     @AllArgsConstructor @ToString
-    public static class ASTCond implements AST{
+    public static class ASTBinaryOp implements AST{
         AST left;
         AST right;
         String op;
     }
     
-    public static Parser<ASTCond> bicond(){
+    public static Parser<ASTBinaryOp> bicond(){
         return expression().next(l -> 
                 terms.token("=", "<", "<=", ">", ">=").source()
                         .next(op -> 
-                expression().map(r -> new ASTCond(l, r, op))));
+                expression().map(r -> new ASTBinaryOp(l, r, op))));
     }
     
     // between := value "between" value "and" value
@@ -125,24 +125,11 @@ public class SqlParser {
     public static Parser<AST> cond(){
         return Parsers.or(bicond(), between());
     }
-    
-    // logic := cond (("and" | "or") cond)*
-    @AllArgsConstructor @ToString
-    public static class ASTLogic implements AST{
-        AST left;
-        AST right;
-        String op;
-    }
-    @AllArgsConstructor @ToString
-    static class Cont{
-        String op;
-        AST cond;
-    }
-    
+
     public static Parser<AST> logic(){
         return new OperatorTable<AST>()
-                .infixl(terms.token("and").retn((l, r) -> new ASTLogic(l, r, "and")), 1)
-                .infixl(terms.token("or").retn((l, r) -> new ASTLogic(l, r, "or")), 1)
+                .infixl(terms.token("and").retn((l, r) -> new ASTBinaryOp(l, r, "and")), 1)
+                .infixl(terms.token("or").retn((l, r) -> new ASTBinaryOp(l, r, "or")), 1)
                 .build(cond());
     }
     

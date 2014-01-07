@@ -21,7 +21,6 @@ import static kis.sqlparser.ObjectPatternMatch.*;
 import kis.sqlparser.SqlParser.*;
 import kis.sqlparser.Table.Tuple;
 import lombok.AllArgsConstructor;
-import lombok.ToString;
 import org.codehaus.jparsec.Parser;
 
 /**
@@ -65,7 +64,7 @@ public class SqlAnalizer {
             return "NULL";
         }
     }
-    @ToString
+
     public static class Wildcard implements SqlValue{
         @Override
         public String toString() {
@@ -492,9 +491,7 @@ public class SqlAnalizer {
         return matchRet(ast, 
             caseOfRet(ASTStr.class, s -> 
                     new StringValue(s.str)),
-            caseOfRet(ASTLogic.class, l -> 
-                    new BinaryOp(validate(env, l.left), validate(env, l.right), l.op.trim())),
-            caseOfRet(ASTCond.class, c -> 
+            caseOfRet(ASTBinaryOp.class, c -> 
                     new BinaryOp(validate(env, c.left), validate(env, c.right), c.op.trim())),
             caseOfRet(ASTBetween.class, b -> 
                     new TernaryOp(validate(env, b.obj),validate(env, b.start), validate(env, b.end),
