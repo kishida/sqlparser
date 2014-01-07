@@ -29,11 +29,11 @@ public class SqlParserTest {
     
     @Test
     public void 文字列(){
-        Parser<SqlParser.ASTStr> parser = SqlParser.str().from(SqlParser.tokenizer, SqlParser.ignored);
-        assertThat(parser.parse("'test'").str, is("test"));
-        assertThat(parser.parse("''").str , is(""));
-        assertThat(parser.parse("'tes''t'").str, is("tes't"));
-        assertThat(parser.parse("'tes''t'''").str, is("tes't'"));
+        Parser<SqlParser.StringValue> parser = SqlParser.str().from(SqlParser.tokenizer, SqlParser.ignored);
+        assertThat(parser.parse("'test'").value, is("test"));
+        assertThat(parser.parse("''").value , is(""));
+        assertThat(parser.parse("'tes''t'").value, is("tes't"));
+        assertThat(parser.parse("'tes''t'''").value, is("tes't'"));
     }
     
     @Test
@@ -83,7 +83,7 @@ public class SqlParserTest {
     
     @Test
     public void insertValue(){
-        Parser<List<SqlParser.AST>> parser = SqlParser.insertValues().from(SqlParser.tokenizer, SqlParser.ignored);
+        Parser<List<SqlParser.ASTExp>> parser = SqlParser.insertValues().from(SqlParser.tokenizer, SqlParser.ignored);
         System.out.println(parser.parse("(1, 'test')"));
         System.out.println(parser.parse("(3, 'test', 2, 'hoge')"));
     }
@@ -115,7 +115,7 @@ public class SqlParserTest {
     
     @Test
     public void expression(){
-        Parser<SqlParser.AST> parser = SqlParser.expression().from(SqlParser.tokenizer, SqlParser.ignored);
+        Parser<SqlParser.ASTExp> parser = SqlParser.expression().from(SqlParser.tokenizer, SqlParser.ignored);
         System.out.println(parser.parse("12+3*4"));
         System.out.println(parser.parse("price+3*4"));
         System.out.println(parser.parse("bunrui.price+3*4"));

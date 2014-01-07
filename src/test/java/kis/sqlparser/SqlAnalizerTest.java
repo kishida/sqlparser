@@ -12,6 +12,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import kis.sqlparser.SqlAnalizer.*;
+import kis.sqlparser.SqlParser.IntValue;
 import kis.sqlparser.Table.Tuple;
 import org.junit.Test;
 

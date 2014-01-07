@@ -9,6 +9,7 @@ package kis.sqlparser;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import kis.sqlparser.SqlAnalizer.SqlValue;
 import lombok.AllArgsConstructor;
 import lombok.ToString;
 import org.codehaus.jparsec.OperatorTable;
@@ -38,20 +39,24 @@ public class SqlParser {
             Terminals.StringLiteral.SINGLE_QUOTE_TOKENIZER,
             Terminals.IntegerLiteral.TOKENIZER);
     
-    public interface AST{}
-    
+    public static interface AST{}
+    public static interface ASTExp extends AST{}
     // integer
-    @AllArgsConstructor @ToString
-    public static class ASTInt implements AST{
+    @AllArgsConstructor
+    public static class IntValue implements ASTExp, SqlValue{
         int value;
+        @Override
+        public String toString() {
+            return value + "";
+        }
     }
-    public static Parser<ASTInt> integer(){
-        return Terminals.IntegerLiteral.PARSER.map(s -> new ASTInt(Integer.parseInt(s)));
+    public static Parser<IntValue> integer(){
+        return Terminals.IntegerLiteral.PARSER.map(s -> new IntValue(Integer.parseInt(s)));
     }
     
     // identifier
     @AllArgsConstructor @ToString
-    public static class ASTIdent implements AST{
+    public static class ASTIdent implements ASTExp{
         String ident;
     }
     public static Parser<ASTIdent> identifier(){
@@ -59,18 +64,23 @@ public class SqlParser {
     }
     
     // str
-    @AllArgsConstructor @ToString
-    public static class ASTStr implements AST{
-        String str;
+    @AllArgsConstructor
+    public static class StringValue implements ASTExp, SqlValue{
+        String value;
+        @Override
+        public String toString() {
+            return "'" + value + "'";
+        }
+        
     }
-    public static Parser<ASTStr> str(){
-        return Terminals.StringLiteral.PARSER.map(s -> new ASTStr(
+    public static Parser<StringValue> str(){
+        return Terminals.StringLiteral.PARSER.map(s -> new StringValue(
                 s.replaceAll("''", "'")));
     }
     
     // fqn := identifier "." identifier
     @AllArgsConstructor @ToString
-    public static class ASTFqn implements AST{
+    public static class ASTFqn implements ASTExp{
         ASTIdent table;
         ASTIdent field;
     }
@@ -79,12 +89,12 @@ public class SqlParser {
     }
     
     // value := fqn | identifier | integer | str
-    public static Parser<AST> value(){
+    public static Parser<ASTExp> value(){
         return Parsers.or(fqn(), identifier(), integer(), str());
     }
     
-    public static Parser<AST> expression(){
-        return new OperatorTable<AST>()
+    public static Parser<ASTExp> expression(){
+        return new OperatorTable<ASTExp>()
                 .infixl(terms.token("+").retn((l, r) -> new ASTBinaryOp(l, r, "+")), 10)
                 .infixl(terms.token("-").retn((l, r) -> new ASTBinaryOp(l, r, "-")), 10)
                 .infixl(terms.token("/").retn((l, r) -> new ASTBinaryOp(l, r, "/")), 20)
@@ -94,9 +104,9 @@ public class SqlParser {
     
     // bicond := value ("=" | "<" | "<=" | ">" | ">=) value
     @AllArgsConstructor @ToString
-    public static class ASTBinaryOp implements AST{
-        AST left;
-        AST right;
+    public static class ASTBinaryOp implements ASTExp{
+        ASTExp left;
+        ASTExp right;
         String op;
     }
     
@@ -109,37 +119,43 @@ public class SqlParser {
     
     // between := value "between" value "and" value
     @AllArgsConstructor @ToString
-    public static class ASTBetween implements AST{
-        AST obj;
-        AST start;
-        AST end;
+    public static class ASTTernaryOp implements ASTExp{
+        ASTExp obj;
+        ASTExp start;
+        ASTExp end;
+        String op;
     }
     
-    public static Parser<ASTBetween> between(){
+    public static Parser<ASTTernaryOp> between(){
         return expression().next(o ->
             terms.token("between").next(expression()).next(st -> 
                     terms.token("and").next(expression()).map(ed -> 
-                            new ASTBetween(o, st, ed))));
+                            new ASTTernaryOp(o, st, ed, "between"))));
     }
     // cond := bicond | between
-    public static Parser<AST> cond(){
+    public static Parser<ASTExp> cond(){
         return Parsers.or(bicond(), between());
     }
 
-    public static Parser<AST> logic(){
-        return new OperatorTable<AST>()
+    public static Parser<ASTExp> logic(){
+        return new OperatorTable<ASTExp>()
                 .infixl(terms.token("and").retn((l, r) -> new ASTBinaryOp(l, r, "and")), 1)
                 .infixl(terms.token("or").retn((l, r) -> new ASTBinaryOp(l, r, "or")), 1)
                 .build(cond());
     }
     
+    public static interface ASTStatement extends AST{}
     // select := "select" value ("," value)*
     @AllArgsConstructor @ToString
     public static class ASTSelect implements AST{
         List<? extends AST> cols;
     }
     
-    public static class ASTWildcard implements AST{
+    public static class ASTWildcard implements AST, SqlValue{
+        @Override
+        public String toString() {
+            return "*";
+        }
     }
     
     public static Parser<ASTSelect> select(){
@@ -176,13 +192,13 @@ public class SqlParser {
                 .next(t -> join().many().map(j -> new ASTFrom(t, j))));
     }
     // where := "where" logic
-    public static Parser<AST> where(){
+    public static Parser<ASTExp> where(){
         return terms.token("where").next(logic());
     }
     
     // selectStatement := select from where?
     @AllArgsConstructor @ToString
-    public static class ASTSql implements AST{
+    public static class ASTSql implements ASTStatement{
         ASTSelect select;
         ASTFrom from;
         Optional<? extends AST> where;
@@ -200,19 +216,20 @@ public class SqlParser {
                 terms.token(")"));
     }
     
-    public static Parser<List<AST>> insertValues(){
+    public static Parser<List<ASTExp>> insertValues(){
+        Parser<List<ASTExp>> or = Parsers.or(Parsers.<ASTExp>or(integer(), str()).many());
         return Parsers.between(
-                terms.token("("), 
-                Parsers.or(integer(), str()).sepBy1(terms.token(",")), 
+                terms.token("("),
+                Parsers.<ASTExp>or(integer(), str()).sepBy1(terms.token(",")), 
                 terms.token(")"));
     }
     
     // insert := "insert" "into" table insertField? "values" insertValues ("," insertValues)*
     @AllArgsConstructor @ToString
-    public static class ASTInsert implements AST{
+    public static class ASTInsert implements ASTStatement{
         ASTIdent table;
         Optional<List<ASTIdent>> field;
-        List<List<AST>> value;
+        List<List<ASTExp>> value;
     }
     
     public static Parser<ASTInsert> insert(){
@@ -224,7 +241,7 @@ public class SqlParser {
     }
     
     @AllArgsConstructor
-    public static class ASTDelete implements AST{
+    public static class ASTDelete implements ASTStatement{
         ASTIdent table;
         Optional<AST> where;
     }
@@ -253,7 +270,7 @@ public class SqlParser {
     
     // update := "update" table "set" updateValue ("," updateValue)* where
     @AllArgsConstructor @ToString
-    public static class ASTUpdate implements AST{
+    public static class ASTUpdate implements ASTStatement{
         ASTIdent table;
         List<ASTUpdateValue> values;
         Optional<AST> where;
@@ -268,7 +285,7 @@ public class SqlParser {
     }
     
     
-    public static Parser<AST> parser(){
+    public static Parser<ASTStatement> parser(){
         return Parsers.or(selectStatement(), insert(), update(), delete()).from(tokenizer, ignored);
     }
 

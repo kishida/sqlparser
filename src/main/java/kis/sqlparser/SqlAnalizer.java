@@ -28,17 +28,8 @@ import org.codehaus.jparsec.Parser;
  * @author naoki
  */
 public class SqlAnalizer {
-    public static interface SqlValue{
+    public static interface SqlValue{// extends ASTExp{
         
-    }
-    @AllArgsConstructor
-    public static class StringValue implements SqlValue{
-        String value;
-        
-        @Override
-        public String toString() {
-            return "'" + value + "'";
-        }
     }
     @AllArgsConstructor
     public static class BooleanValue implements SqlValue{
@@ -49,26 +40,10 @@ public class SqlAnalizer {
             return value + "";
         }
     }
-    @AllArgsConstructor
-    public static class IntValue implements SqlValue{
-        int value;
-        
-        @Override
-        public String toString() {
-            return value + "";
-        }
-    }
     public static class NullValue implements SqlValue{
         @Override
         public String toString() {
             return "NULL";
-        }
-    }
-
-    public static class Wildcard implements SqlValue{
-        @Override
-        public String toString() {
-            return "*";
         }
     }
     
@@ -290,7 +265,7 @@ public class SqlAnalizer {
         List<Column> getColumns() {
             Counter c = new Counter();
             return values.stream().flatMap(v -> 
-                v instanceof Wildcard ? 
+                v instanceof ASTWildcard ? 
                     from.getColumns().stream() :
                     Stream.of((v instanceof FieldValue) ?
                         ((FieldValue)v).column : 
@@ -308,7 +283,7 @@ public class SqlAnalizer {
                 if(!line.isPresent()) return line;
 
                 List<Optional<?>> row = values.stream().flatMap(c -> {
-                    if(c instanceof Wildcard){
+                    if(c instanceof ASTWildcard){
                         return from.getColumns().stream().map(FieldValue::new);
                     }else{
                         return Stream.of(c);
@@ -489,15 +464,14 @@ public class SqlAnalizer {
     
     public static SqlValue validate(Map<String, Table> env, AST ast){
         return matchRet(ast, 
-            caseOfRet(ASTStr.class, s -> 
-                    new StringValue(s.str)),
+            caseOfRet(StringValue.class, s -> s),
+            caseOfRet(IntValue.class, i -> i),
+            caseOfRet(ASTWildcard.class, w -> w),
             caseOfRet(ASTBinaryOp.class, c -> 
                     new BinaryOp(validate(env, c.left), validate(env, c.right), c.op.trim())),
-            caseOfRet(ASTBetween.class, b -> 
+            caseOfRet(ASTTernaryOp.class, b -> 
                     new TernaryOp(validate(env, b.obj),validate(env, b.start), validate(env, b.end),
                             "between")),
-            caseOfRet(ASTInt.class, i -> 
-                    new IntValue(i.value)),
             caseOfRet(ASTIdent.class, id ->{
                 List<Column> column = findField(env, id.ident);
                 if(column.isEmpty()){
@@ -508,8 +482,6 @@ public class SqlAnalizer {
                     return new FieldValue(column.get(0));
                 }
             }),
-            caseOfRet(ASTWildcard.class, w ->
-                new Wildcard()),
             caseOfRet(ASTFqn.class, f ->
                 (SqlValue)Optional.ofNullable(env.get(f.table.ident))
                         .orElseThrow(() -> new RuntimeException(
@@ -777,7 +749,7 @@ public class SqlAnalizer {
         
     }
     public static void exec(Schema sc, String sqlstr){
-        Parser<SqlParser.AST> parser = SqlParser.parser();
+        Parser<SqlParser.ASTStatement> parser = SqlParser.parser();
         SqlParser.AST sql = parser.parse(sqlstr);
         if(sql instanceof ASTInsert){
             insert(sc, (ASTInsert) sql);
