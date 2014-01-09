@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import lombok.AllArgsConstructor;
+import lombok.EqualsAndHashCode;
 
 /**
  *
@@ -19,6 +20,7 @@ import lombok.AllArgsConstructor;
  */
 public class Table {
     @AllArgsConstructor
+    @EqualsAndHashCode(of = "rid")
     public static class Tuple{
         long rid;
         List<Optional<?>> row;

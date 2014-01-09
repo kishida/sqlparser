@@ -32,7 +32,7 @@ public class SqlAnalizerTest {
         cols.put(new Column("id"), 1);
         cols.put(new Column("name"), 2);
         Tuple collect = new Tuple(1, Stream.of(true, 123, "ほげ")
-                .map(o -> Optional.of(o))
+                .map(Optional::of)
                 .collect(Collectors.toList()));
         System.out.println(SqlAnalizer.eval(new IntValue(3), cols, collect));
         System.out.println(SqlAnalizer.eval(new BinaryOp(new IntValue(3), new IntValue(3), "="), cols, collect));
