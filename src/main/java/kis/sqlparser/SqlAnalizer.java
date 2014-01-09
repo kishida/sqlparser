@@ -9,6 +9,7 @@ package kis.sqlparser;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -22,6 +23,7 @@ import kis.sqlparser.SqlParser.*;
 import kis.sqlparser.Table.Tuple;
 import lombok.AllArgsConstructor;
 import org.codehaus.jparsec.Parser;
+import org.codehaus.jparsec.util.Strings;
 
 /**
  *
@@ -412,6 +414,71 @@ public class SqlAnalizer {
             return "table[" + table.name + "]";
         }
     }
+
+    public static class OrderPlan extends NodePlan{
+        List<Pair<SqlValue, Boolean>> order;
+        
+        public OrderPlan(QueryPlan from, List<Pair<SqlValue, Boolean>> order) {
+            super(from);
+            this.order = order;
+        }
+
+        @Override
+        List<Column> getColumns() {
+            
+            return from.getColumns();
+        }
+
+        @Override
+        Records<Tuple> records() {
+            List<Pair<Tuple, List<Pair<SqlValue, Boolean>>>> tuples = new ArrayList<>();
+            Records<Tuple> rec = from.records();
+            Map<Column, Integer> columnIndex = getColumnIndex();
+            for(Optional<Tuple> line; (line = rec.next()).isPresent();){
+                Tuple t = line.get();
+                tuples.add(Pair.of(t, 
+                        order.stream().map(p -> p.map(v -> eval(v, columnIndex, t), b -> b))
+                                .collect(Collectors.toList())));
+            }
+            tuples.sort((o1, o2) -> {
+                for(Iterator<Pair<SqlValue, Boolean>> itel =o1.right.iterator(), iter = o2.right.iterator(); itel.hasNext() && iter.hasNext();){
+                    Pair<SqlValue, Boolean> l = itel.next();
+                    Pair<SqlValue, Boolean> r = iter.next();
+                    if(l.left instanceof NullValue){
+                        if(r.left instanceof NullValue){
+                            continue;
+                        }
+                        return 1;
+                    }
+                    if(r.left instanceof NullValue){
+                        return -1;
+                    }
+                    if(r.left instanceof IntValue && l.left instanceof IntValue){
+                        int ret = Integer.compare(((IntValue)l.left).value, ((IntValue)r.left).value);
+                        if(ret == 0) continue;
+                        return l.right ? ret : -ret;
+                    }
+                    if(r.left instanceof StringValue && l.left instanceof StringValue){
+                        int ret = ((StringValue)l.left).value.compareTo(((StringValue)r.left).value);
+                        if(ret == 0) continue;
+                        return l.right ? ret : -ret;
+                    }
+                }
+                return 0;
+            });
+            Iterator<Pair<Tuple, List<Pair<SqlValue, Boolean>>>> ite = tuples.iterator();
+            return () -> {
+                return ite.hasNext() ? Optional.of(ite.next().left) : Optional.empty();
+            };
+        }
+
+        @Override
+        public String toString() {
+            return "order[] <- " + from.toString();
+        }
+        
+    }
+    
     public static class JoinPlan extends NodePlan{
         QueryPlan secondary;
         SqlValue cond;
@@ -524,7 +591,14 @@ public class SqlAnalizer {
         if(cond.isPresent()){
             primary = new FilterPlan(primary, cond.get());
         }
-
+        // order by
+        if(!sql.order.isEmpty()){
+            List<Pair<SqlValue, Boolean>> order = sql.order.stream()
+                    .map(ov -> Pair.of(validate(env, ov.exp), ov.asc))
+                    .collect(Collectors.toList());
+            primary = new OrderPlan(primary, order);
+        }
+        
         //Select解析
         List<SqlValue> columns = sql.select.stream()
                 .map(c -> validate(env, c))
@@ -804,6 +878,8 @@ public class SqlAnalizer {
         exec(sc, "insert into bunrui(id, name) values(6, 'ビール' )");
         exec(sc, "insert into bunrui(id, name, seisen) values(7, '麺', 2), (8, '茶', 2)");
         exec(sc, "select * from bunrui");
+        exec(sc, "select * from bunrui order by id desc");
+        exec(sc, "select * from bunrui order by seisen, id desc");
         
         exec(sc, "select id,name,price,price*2 from shohin");
         exec(sc, "select id, name from shohin where price between 130 and 200 or id=1");
