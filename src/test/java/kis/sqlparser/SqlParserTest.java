@@ -73,6 +73,18 @@ public class SqlParserTest {
         System.out.println(parser.parse("select * from shohin where id=3"));
         System.out.println(parser.parse("select * from shohin left join bunrui on shohin.bunrui_id=bunrui.id where id=3"));
         System.out.println(parser.parse("select id, name from shohin"));
+        System.out.println(parser.parse("select * from shohin order by price"));
+        System.out.println(parser.parse("select * from shohin where bunrui=3 order by price"));
+    }
+    
+    @Test
+    public void orderBy(){
+        Parser<List<SqlParser.ASTOrderValue>> parser = SqlParser.orderby().from(SqlParser.tokenizer, SqlParser.ignored);
+        System.out.println(parser.parse("order by price"));
+        System.out.println(parser.parse("order by price asc"));
+        System.out.println(parser.parse("order by price desc"));
+        System.out.println(parser.parse("order by shohin.price desc"));
+        System.out.println(parser.parse("order by price asc, id"));
     }
     
     @Test

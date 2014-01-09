@@ -7,6 +7,7 @@
 package kis.sqlparser;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import kis.sqlparser.SqlAnalizer.SqlValue;
@@ -24,7 +25,9 @@ import org.codehaus.jparsec.Terminals;
  */
 public class SqlParser {
     static final String[] keywords = {
-        "between", "and", "or", "select", "from", "left", "join", "on", "where", "insert", "into", "values", "update", "set", "delete"
+        "between", "and", "or", "select", "from", "left", "join", "on", "where", 
+        "insert", "into", "values", "update", "set", "delete", 
+        "order", "by", "asc", "desc"
     };
     
     static final String[] operators = {
@@ -196,16 +199,39 @@ public class SqlParser {
         return terms.token("where").next(logic());
     }
     
+    // ordervalue := expression ("asc"|"desc")?
+    @AllArgsConstructor @ToString
+    public static class ASTOrderValue implements AST{
+        ASTExp exp;
+        boolean asc;
+    }
+    public static Parser<ASTOrderValue> orderValue(){
+        return expression().next(x -> Parsers.or(
+                terms.token("asc").retn(true), 
+                terms.token("desc").retn(false)).optional()
+        .map(b -> (b == null) ? true : b).map(b -> new ASTOrderValue(x, b)));
+    }
+    // orderby := "order" "by" ordervalue ("," ordervalue)*
+    public static Parser<List<ASTOrderValue>> orderby(){
+        return terms.phrase("order", "by")
+                .next(orderValue().sepBy(terms.token(",")));
+    }
+    
     // selectStatement := select from where?
     @AllArgsConstructor @ToString
     public static class ASTSql implements ASTStatement{
         ASTSelect select;
         ASTFrom from;
         Optional<? extends AST> where;
+        List<ASTOrderValue> order;
     }
     public static Parser<ASTSql> selectStatement(){
-        return select().next(s -> from().next(f -> where().optional()
-                .map(w -> new ASTSql(s, f, Optional.ofNullable(w)))));
+        return Parsers.sequence(
+                select(), from(),
+                where().optional(), orderby().optional(),
+                (s, f, w, o) -> 
+                        new ASTSql(s, f, Optional.ofNullable(w), 
+                                o == null ? Collections.EMPTY_LIST : o));
     }
 
     // insertField := "(" identity ("," identity)* ")"
