@@ -496,7 +496,7 @@ public class SqlAnalizer {
         );
     }
     
-    public static SelectPlan analize(Schema sc, SqlParser.ASTSql sql){
+    public static SelectPlan analize(Schema sc, SqlParser.ASTSelect sql){
         Map<String, Table> env = new HashMap<>();
 
         //From解析
@@ -526,8 +526,7 @@ public class SqlAnalizer {
         }
 
         //Select解析
-        SqlParser.ASTSelect sel = sql.select;
-        List<SqlValue> columns = sel.cols.stream()
+        List<SqlValue> columns = sql.select.stream()
                 .map(c -> validate(env, c))
                 .collect(Collectors.toList());
         return new SelectPlan(primary, columns);
@@ -760,10 +759,10 @@ public class SqlAnalizer {
         }else if(sql instanceof ASTDelete){
             delete(sc, (ASTDelete) sql);
             return;
-        }else if(!(sql instanceof ASTSql)){
+        }else if(!(sql instanceof ASTSelect)){
             return;
         }
-        ASTSql select = (ASTSql) sql;
+        ASTSelect select = (ASTSelect) sql;
         SelectPlan plan = analize(sc, select);
         System.out.println(sqlstr);
         System.out.println("初期プラン:" + plan);

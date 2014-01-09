@@ -61,7 +61,7 @@ public class SqlParserTest {
     
     @Test
     public void select句(){
-        Parser<SqlParser.ASTSelect> parser = SqlParser.select().from(SqlParser.tokenizer, SqlParser.ignored);
+        Parser<List<? extends SqlParser.AST>> parser = SqlParser.select().from(SqlParser.tokenizer, SqlParser.ignored);
         System.out.println(parser.parse("select *"));
         System.out.println(parser.parse("select id, name"));
         System.out.println(parser.parse("select id"));
@@ -69,7 +69,7 @@ public class SqlParserTest {
     
     @Test
     public void selectsql全体(){
-        Parser<SqlParser.ASTSql> parser = SqlParser.selectStatement().from(SqlParser.tokenizer, SqlParser.ignored);
+        Parser<SqlParser.ASTSelect> parser = SqlParser.selectStatement().from(SqlParser.tokenizer, SqlParser.ignored);
         System.out.println(parser.parse("select * from shohin where id=3"));
         System.out.println(parser.parse("select * from shohin left join bunrui on shohin.bunrui_id=bunrui.id where id=3"));
         System.out.println(parser.parse("select id, name from shohin"));

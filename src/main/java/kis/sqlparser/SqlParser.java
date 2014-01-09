@@ -149,11 +149,6 @@ public class SqlParser {
     
     public static interface ASTStatement extends AST{}
     // select := "select" value ("," value)*
-    @AllArgsConstructor @ToString
-    public static class ASTSelect implements AST{
-        List<? extends AST> cols;
-    }
-    
     public static class ASTWildcard implements AST, SqlValue{
         @Override
         public String toString() {
@@ -161,11 +156,10 @@ public class SqlParser {
         }
     }
     
-    public static Parser<ASTSelect> select(){
+    public static Parser<List<? extends AST>> select(){
         return terms.token("select").next(Parsers.or(
                 terms.token("*").map(t -> Arrays.asList(new ASTWildcard())), 
-                expression().sepBy1(terms.token(","))
-        )).map(l -> new ASTSelect(l));
+                expression().sepBy1(terms.token(","))));
     }
     
     // table := identifier
@@ -219,18 +213,18 @@ public class SqlParser {
     
     // selectStatement := select from where?
     @AllArgsConstructor @ToString
-    public static class ASTSql implements ASTStatement{
-        ASTSelect select;
+    public static class ASTSelect implements ASTStatement{
+        List<? extends AST> select;
         ASTFrom from;
         Optional<? extends AST> where;
         List<ASTOrderValue> order;
     }
-    public static Parser<ASTSql> selectStatement(){
+    public static Parser<ASTSelect> selectStatement(){
         return Parsers.sequence(
                 select(), from(),
                 where().optional(), orderby().optional(),
                 (s, f, w, o) -> 
-                        new ASTSql(s, f, Optional.ofNullable(w), 
+                        new ASTSelect(s, f, Optional.ofNullable(w), 
                                 o == null ? Collections.EMPTY_LIST : o));
     }
 
