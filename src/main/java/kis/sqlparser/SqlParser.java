@@ -27,7 +27,7 @@ public class SqlParser {
     static final String[] keywords = {
         "between", "and", "or", "select", "from", "left", "join", "on", "where", 
         "insert", "into", "values", "update", "set", "delete", 
-        "order", "by", "asc", "desc"
+        "order", "by", "asc", "desc", "group", "having"
     };
     
     static final String[] operators = {
@@ -224,20 +224,36 @@ public class SqlParser {
                 .next(orderValue().sepBy(terms.token(",")));
     }
     
+    // group by := "group" "by" ident ("," ident)*
+    public static Parser<List<ASTExp>> groupby(){
+        return terms.phrase("group", "by")
+                .next(Parsers.or(fqn(), identifier())).sepBy1(terms.token(","));
+    }
+    
+    // having := "having" logic
+    public static Parser<ASTExp> having(){
+        return terms.token("having").next(logic());
+    }
+    
     // selectStatement := select from where?
     @AllArgsConstructor @ToString
     public static class ASTSelect implements ASTStatement{
         List<? extends AST> select;
         ASTFrom from;
         Optional<? extends AST> where;
+        List<ASTExp> groupby;
+        Optional<? extends AST> having;
         List<ASTOrderValue> order;
     }
     public static Parser<ASTSelect> selectStatement(){
         return Parsers.sequence(
-                select(), from(),
-                where().optional(), orderby().optional(),
-                (s, f, w, o) -> 
+                select(), from(), where().optional(), 
+                groupby().optional().next(g -> having().optional().map(h -> Pair.of(g, h))),
+                orderby().optional(),
+                (s, f, w, p, o) -> 
                         new ASTSelect(s, f, Optional.ofNullable(w), 
+                                p.left == null ? Collections.EMPTY_LIST : p.left,
+                                Optional.ofNullable(p.right),
                                 o == null ? Collections.EMPTY_LIST : o));
     }
 

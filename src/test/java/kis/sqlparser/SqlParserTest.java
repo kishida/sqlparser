@@ -82,6 +82,8 @@ public class SqlParserTest {
         System.out.println(parser.parse("select id, name from shohin"));
         System.out.println(parser.parse("select * from shohin order by price"));
         System.out.println(parser.parse("select * from shohin where bunrui=3 order by price"));
+        System.out.println(parser.parse("select * from shohin where bunrui=3 group by bunrui order by price"));
+        System.out.println(parser.parse("select * from shohin where bunrui=3 group by bunrui_id having bunrui_id=3 order by price"));
     }
     
     @Test
@@ -92,6 +94,13 @@ public class SqlParserTest {
         System.out.println(parser.parse("order by price desc"));
         System.out.println(parser.parse("order by shohin.price desc"));
         System.out.println(parser.parse("order by price asc, id"));
+    }
+    
+    @Test
+    public void groupBy(){
+        Parser<List<SqlParser.ASTExp>> parser = SqlParser.groupby().from(SqlParser.tokenizer, SqlParser.ignored);
+        System.out.println(parser.parse("group by bunrui_id"));
+        System.out.println(parser.parse("group by bunrui.bunrui_id"));
     }
     
     @Test
