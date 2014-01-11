@@ -9,7 +9,6 @@ package kis.sqlparser;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -23,7 +22,6 @@ import kis.sqlparser.SqlParser.*;
 import kis.sqlparser.Table.Tuple;
 import lombok.AllArgsConstructor;
 import org.codehaus.jparsec.Parser;
-import org.codehaus.jparsec.util.Strings;
 
 /**
  *

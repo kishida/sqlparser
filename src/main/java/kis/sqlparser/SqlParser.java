@@ -91,9 +91,22 @@ public class SqlParser {
         return identifier().next(t -> terms.token(".").next(identifier()).map(f -> new ASTFqn(t, f)));
     }
     
+    @AllArgsConstructor @ToString
+    public static class ASTFunc implements ASTExp{
+        ASTIdent name;
+        List<ASTExp> params;
+    }
+    
+    public static Parser<ASTFunc> func(){
+        Parser<ASTFunc> func = identifier().next(id -> 
+                value().sepBy1(terms.token(",")).between(terms.token("("), terms.token(")"))
+                .map(params -> new ASTFunc(id, params)));
+        return func;
+    }
+    
     // value := fqn | identifier | integer | str
     public static Parser<ASTExp> value(){
-        return Parsers.or(fqn(), identifier(), integer(), str());
+        return Parsers.or(fqn(), func(), identifier(), integer(), str());
     }
     
     public static Parser<ASTExp> expression(){
@@ -237,7 +250,6 @@ public class SqlParser {
     }
     
     public static Parser<List<ASTExp>> insertValues(){
-        Parser<List<ASTExp>> or = Parsers.or(Parsers.<ASTExp>or(integer(), str()).many());
         return Parsers.between(
                 terms.token("("),
                 Parsers.<ASTExp>or(integer(), str()).sepBy1(terms.token(",")), 

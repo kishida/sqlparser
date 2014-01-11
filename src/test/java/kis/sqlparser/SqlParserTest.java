@@ -42,6 +42,13 @@ public class SqlParserTest {
     }
     
     @Test
+    public void 関数(){
+        Parser<SqlParser.ASTExp> parser = SqlParser.value().from(SqlParser.tokenizer, SqlParser.ignored);
+        System.out.println(parser.parse("count(floor(price))"));
+        System.out.println(parser.parse("count(floor(shohin.price))"));
+    }
+    
+    @Test
     public void 比較(){
         Parser<SqlParser.ASTBinaryOp> parser = SqlParser.bicond().from(SqlParser.tokenizer, SqlParser.ignored);
         System.out.println(parser.parse("shohin.bunrui_id=bunrui.id"));
