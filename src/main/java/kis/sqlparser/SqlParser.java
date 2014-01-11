@@ -248,12 +248,12 @@ public class SqlParser {
     public static Parser<ASTSelect> selectStatement(){
         return Parsers.sequence(
                 select(), from(), where().optional(), 
-                groupby().optional().next(g -> having().optional().map(h -> Pair.of(g, h))),
+                groupby().next(g -> having().optional().map(h -> Pair.of(g, h))).optional(),
                 orderby().optional(),
                 (s, f, w, p, o) -> 
                         new ASTSelect(s, f, Optional.ofNullable(w), 
-                                p.left == null ? Collections.EMPTY_LIST : p.left,
-                                Optional.ofNullable(p.right),
+                                p == null ? Collections.EMPTY_LIST : p.left,
+                                p == null ? Optional.empty() : Optional.ofNullable(p.right),
                                 o == null ? Collections.EMPTY_LIST : o));
     }
 
