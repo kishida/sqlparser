@@ -215,8 +215,8 @@ public class SqlParser {
     public static Parser<ASTOrderValue> orderValue(){
         return expression().next(x -> Parsers.or(
                 terms.token("asc").retn(true), 
-                terms.token("desc").retn(false)).optional()
-        .map(b -> (b == null) ? true : b).map(b -> new ASTOrderValue(x, b)));
+                terms.token("desc").retn(false)).optional(true)
+        .map(b -> new ASTOrderValue(x, b)));
     }
     // orderby := "order" "by" ordervalue ("," ordervalue)*
     public static Parser<List<ASTOrderValue>> orderby(){
