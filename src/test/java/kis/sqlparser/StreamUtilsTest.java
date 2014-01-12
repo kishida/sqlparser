@@ -27,5 +27,12 @@ public class StreamUtilsTest {
                 IntStream.iterate(1, i -> i + 1).boxed(), 
                 (s, i) -> System.out.printf("%d:%s%n", i, s));
     }
-    
+    @Test
+    public void testZipStream(){
+        StreamUtils.zip(
+                Stream.of("abc", "cde", "def"),
+                Stream.iterate(1, i -> i + 1))
+                .map(p -> p.reduce((s, i) -> String.format("%d:%s", i, s)))
+                .forEach(s -> System.out.println(s));
+    }
 }
