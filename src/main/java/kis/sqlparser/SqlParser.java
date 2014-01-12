@@ -99,7 +99,7 @@ public class SqlParser {
     
     public static Parser<ASTFunc> func(){
         Parser<ASTFunc> func = identifier().next(id -> 
-                value().sepBy1(terms.token(",")).between(terms.token("("), terms.token(")"))
+                value().sepBy(terms.token(",")).between(terms.token("("), terms.token(")"))
                 .map(params -> new ASTFunc(id, params)));
         return func;
     }

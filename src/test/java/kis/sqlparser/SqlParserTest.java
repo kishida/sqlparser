@@ -46,6 +46,8 @@ public class SqlParserTest {
         Parser<SqlParser.ASTExp> parser = SqlParser.value().from(SqlParser.tokenizer, SqlParser.ignored);
         System.out.println(parser.parse("count(floor(price))"));
         System.out.println(parser.parse("count(floor(shohin.price))"));
+        System.out.println(parser.parse("len(a, 3)"));
+        System.out.println(parser.parse("now()"));
     }
     
     @Test

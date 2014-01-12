@@ -6,6 +6,8 @@
 
 package kis.sqlparser;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -21,6 +23,7 @@ import static kis.sqlparser.ObjectPatternMatch.*;
 import kis.sqlparser.SqlParser.*;
 import kis.sqlparser.Table.Tuple;
 import lombok.AllArgsConstructor;
+import lombok.ToString;
 import org.codehaus.jparsec.Parser;
 
 /**
@@ -81,6 +84,105 @@ public class SqlAnalizer {
             return String.format("%s %s:%s:%s", op, cond, first, sec);
         }
     }
+    @ToString
+    public static abstract class FunctionExp implements SqlValue{
+        String name;
+        List<SqlValue> params;
+
+        public FunctionExp(String name, List<SqlValue> params, int paramCount) {
+            this.name = name;
+            this.params = params;
+            if(params.size() != paramCount){
+                throw new RuntimeException(name + " function requires " + paramCount + " param");
+            }
+        }
+        
+    }    
+    public static abstract class GeneralFuncExp extends FunctionExp{
+        public GeneralFuncExp(String name, List<SqlValue> params, int count) {
+            super(name, params, count);
+        }
+        
+        abstract SqlValue eval(Map<Column, Integer> colIndex, Tuple tuple);
+    }
+    public static class LengthFunc extends GeneralFuncExp{
+        public LengthFunc(List<SqlValue> params) {
+            super("length", params, 1);
+        }
+        
+        @Override
+        SqlValue eval(Map<Column, Integer> colIndex, Tuple tuple) {
+            SqlValue result = SqlAnalizer.eval(params.get(0), colIndex, tuple);
+            if(result instanceof StringValue){
+                return new IntValue(((StringValue)result).value.length());
+            }
+            throw new RuntimeException(result.getClass() + " is not supported for length()");
+        }
+    }
+    public static class NowFunc extends GeneralFuncExp{
+
+        public NowFunc(List<SqlValue> params) {
+            super("now", params, 0);
+        }
+
+        @Override
+        SqlValue eval(Map<Column, Integer> colIndex, Tuple tuple) {
+            return new StringValue(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss")));
+        }
+        
+    }
+    public static abstract class AggregationExp extends FunctionExp{
+        public AggregationExp(String name, List<SqlValue> param, int paramCount) {
+            super(name, param, paramCount);
+        }
+        abstract void accept(Map<Column, Integer> colIndex, Tuple tuple);
+        abstract SqlValue getValue();
+    }
+    
+    public static class CountExp extends AggregationExp{
+        int count;
+
+        public CountExp(List<SqlValue> param) {
+            super("count", param, 1);
+            count = 0;
+        }
+        @Override
+        void accept(Map<Column, Integer> colIndex, Tuple tuple) {
+            SqlValue result = eval(params.get(0), colIndex, tuple);
+            if(!(result instanceof NullValue)){
+                ++count;
+            }
+        }
+
+        @Override
+        SqlValue getValue() {
+            return new IntValue(count);
+        }
+    }
+
+    public static class SumExp extends AggregationExp{
+        int total;
+
+        public SumExp(List<SqlValue> params) {
+            super("sum", params, 1);
+            total = 0;
+        }
+        @Override
+        void accept(Map<Column, Integer> colIndex, Tuple tuple) {
+            SqlValue result = eval(params.get(0), colIndex, tuple);
+            if(result instanceof IntValue){
+                total += ((IntValue)result).value;
+            }else{
+                throw new RuntimeException(result.getClass() + " is not supported for sum()");
+            }
+        }
+
+        @Override
+        SqlValue getValue() {
+            return new IntValue(total);
+        }
+        
+    }
     
     public static SqlValue wrap(Optional<?> o){
         if(!o.isPresent()){
@@ -111,6 +213,7 @@ public class SqlAnalizer {
             caseOfRet(BooleanValue.class, b -> b),
             caseOfRet(IntValue.class, i -> i),
             caseOfRet(NullValue.class, n -> n),
+            caseOfRet(GeneralFuncExp.class, f -> f.eval(colIndex, tuple)),
             caseOfRet(FieldValue.class, f -> {
                 int idx = colIndex.getOrDefault(f.column, -1);
                 if(idx < 0) throw new RuntimeException(f.column + " not found.");
@@ -556,6 +659,17 @@ public class SqlAnalizer {
                         .orElseThrow(() -> new RuntimeException(
                                 "field " + f.field.ident + " of " + f.table.ident + " not found"))
             ),
+            caseOfRet(ASTFunc.class, f ->{
+                List<SqlValue> params = f.params.stream().map(p -> validate(env, p)).collect(Collectors.toList());
+                switch(f.name.ident){
+                    case "length":
+                        return new LengthFunc(params);
+                    case "now":
+                        return new NowFunc(params);
+                    default:
+                        throw new RuntimeException(f.name.ident + " function not defined.");
+                }
+            }),
             noMatchThrow(() -> 
                     new RuntimeException(ast.getClass().getName() + " is wrong type"))
         );
@@ -589,6 +703,13 @@ public class SqlAnalizer {
         if(cond.isPresent()){
             primary = new FilterPlan(primary, cond.get());
         }
+        //group by
+        if(!sql.groupby.isEmpty()){
+            // selectでgroup byのフィールド以外が使われていないか走査
+            //order byの挿入
+            //集計の挿入
+        }
+        
         // order by
         if(!sql.order.isEmpty()){
             List<Pair<SqlValue, Boolean>> order = sql.order.stream()
@@ -598,6 +719,7 @@ public class SqlAnalizer {
         }
         
         //Select解析
+        //todo 集計関数の確認
         List<SqlValue> columns = sql.select.stream()
                 .map(c -> validate(env, c))
                 .collect(Collectors.toList());
@@ -875,6 +997,7 @@ public class SqlAnalizer {
         exec(sc, "insert into bunrui(name, id) values('酒', 5 )");
         exec(sc, "insert into bunrui(id, name) values(6, 'ビール' )");
         exec(sc, "insert into bunrui(id, name, seisen) values(7, '麺', 2), (8, '茶', 2)");
+        exec(sc, "select id,name, now(), length(name) from bunrui");
         exec(sc, "select * from bunrui");
         exec(sc, "select * from bunrui order by id desc");
         exec(sc, "select * from bunrui order by seisen, id desc");
