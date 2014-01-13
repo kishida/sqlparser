@@ -16,13 +16,18 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
+import java.util.function.UnaryOperator;
+import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toMap;
+import static java.util.stream.Collectors.joining;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import static kis.sqlparser.ObjectPatternMatch.*;
+import static kis.sqlparser.StreamUtils.zip;
 import kis.sqlparser.SqlParser.*;
 import kis.sqlparser.Table.Tuple;
 import lombok.AllArgsConstructor;
+import lombok.EqualsAndHashCode;
 import lombok.ToString;
 import org.codehaus.jparsec.Parser;
 
@@ -34,7 +39,7 @@ public class SqlAnalizer {
     public static interface SqlValue{// extends ASTExp{
         
     }
-    @AllArgsConstructor
+    @AllArgsConstructor @EqualsAndHashCode
     public static class BooleanValue implements SqlValue{
         boolean value;
         
@@ -43,6 +48,7 @@ public class SqlAnalizer {
             return value + "";
         }
     }
+    @EqualsAndHashCode
     public static class NullValue implements SqlValue{
         @Override
         public String toString() {
@@ -50,7 +56,7 @@ public class SqlAnalizer {
         }
     }
     
-    @AllArgsConstructor
+    @AllArgsConstructor 
     public static class BinaryOp implements SqlValue{
         SqlValue left;
         SqlValue right;
@@ -69,6 +75,16 @@ public class SqlAnalizer {
         @Override
         public String toString() {
             return column.parent.map(t -> t.name + ".").orElse("") + column.name;
+        }
+    }
+    
+    @AllArgsConstructor
+    public static class FieldIndex implements SqlValue{
+        int idx;
+        
+        @Override
+        public String toString() {
+            return "Field." + idx;
         }
     }
     
@@ -137,6 +153,7 @@ public class SqlAnalizer {
         }
         abstract void accept(Map<Column, Integer> colIndex, Tuple tuple);
         abstract SqlValue getValue();
+        abstract void reset();
     }
     
     public static class CountExp extends AggregationExp{
@@ -155,6 +172,11 @@ public class SqlAnalizer {
         }
 
         @Override
+        void reset() {
+            count = 0;
+        }
+        
+        @Override
         SqlValue getValue() {
             return new IntValue(count);
         }
@@ -172,9 +194,15 @@ public class SqlAnalizer {
             SqlValue result = eval(params.get(0), colIndex, tuple);
             if(result instanceof IntValue){
                 total += ((IntValue)result).value;
+            }else if(result instanceof NullValue){
             }else{
                 throw new RuntimeException(result.getClass() + " is not supported for sum()");
             }
+        }
+
+        @Override
+        void reset() {
+            total = 0;
         }
 
         @Override
@@ -214,11 +242,16 @@ public class SqlAnalizer {
             caseOfRet(IntValue.class, i -> i),
             caseOfRet(NullValue.class, n -> n),
             caseOfRet(GeneralFuncExp.class, f -> f.eval(colIndex, tuple)),
+            caseOfRet(AggregationExp.class, a -> a.getValue()),
             caseOfRet(FieldValue.class, f -> {
                 int idx = colIndex.getOrDefault(f.column, -1);
                 if(idx < 0) throw new RuntimeException(f.column + " not found.");
                 if(idx >= tuple.row.size()) return new NullValue();
                 return wrap(tuple.row.get(idx));
+            }),
+            caseOfRet(FieldIndex.class, f -> {
+                if(f.idx >= tuple.row.size()) return new NullValue();
+                return wrap(tuple.row.get(f.idx));
             }),
             caseOfRet(BinaryOp.class, bin -> {
                 SqlValue left = eval(bin.left, colIndex, tuple);
@@ -311,7 +344,7 @@ public class SqlAnalizer {
         return env.values().stream()
                 .flatMap(t -> t.columns.stream())
                 .filter(c -> c.name.equals(name))
-                .collect(Collectors.toList());
+                .collect(toList());
     }
 
     public static abstract class QueryPlan{
@@ -328,8 +361,8 @@ public class SqlAnalizer {
         }
         
         Map<Column, Integer> getColumnIndex(){
-            Counter c = new Counter();
-            return getColumns().stream().collect(Collectors.toMap(col -> col, col -> c.getCount() - 1));
+            return StreamUtils.zip(getColumns().stream(), Stream.iterate(0, i -> i + 1))
+                    .collect(toMap(p -> p.left, p -> p.right));
         }
         
     }
@@ -341,7 +374,15 @@ public class SqlAnalizer {
             from.setTo(this);
         }
     }
-    
+    public static abstract class ColumnThroughPlan extends NodePlan{
+        public ColumnThroughPlan(QueryPlan from) {
+            super(from);
+        }
+        @Override
+        List<Column> getColumns() {
+            return from.getColumns();
+        }
+    }
     static class Counter{
         int count;
         Counter(){
@@ -358,9 +399,9 @@ public class SqlAnalizer {
     }
     
     public static class SelectPlan extends NodePlan{
-        List<SqlValue> values;
+        List<? extends SqlValue> values;
         
-        public SelectPlan(QueryPlan from, List<SqlValue> values){
+        public SelectPlan(QueryPlan from, List<? extends SqlValue> values){
             super(from);
             this.values = values;
         }
@@ -373,7 +414,7 @@ public class SqlAnalizer {
                     Stream.of((v instanceof FieldValue) ?
                         ((FieldValue)v).column : 
                         new Column(c.getCount() + "")))
-                .collect(Collectors.toList());
+                .collect(toList());
         }
 
         @Override
@@ -394,7 +435,7 @@ public class SqlAnalizer {
                 })
                         .map(c -> eval(c, columnIndex, line.get()))
                         .map(v -> unwrap(v))
-                        .collect(Collectors.toList());
+                        .collect(toList());
                 return Optional.of(new Tuple(line.get().rid, row));
             };        
         }
@@ -406,7 +447,7 @@ public class SqlAnalizer {
         
     }
 
-    public static class FilterPlan extends NodePlan{
+    public static class FilterPlan extends ColumnThroughPlan{
         List<SqlValue> conds;
 
         public FilterPlan(QueryPlan from, List<SqlValue> conds) {
@@ -415,11 +456,6 @@ public class SqlAnalizer {
         }
         public FilterPlan(QueryPlan from, SqlValue cond) {
             this(from, Arrays.asList(cond));
-        }
-     
-        @Override
-        List<Column> getColumns() {
-            return from.getColumns();
         }
 
         @Override
@@ -448,15 +484,10 @@ public class SqlAnalizer {
         
     }
     
-    public static class EmptyPlan extends NodePlan{
+    public static class EmptyPlan extends ColumnThroughPlan{
 
         public EmptyPlan(QueryPlan from) {
             super(from);
-        }
-
-        @Override
-        List<Column> getColumns() {
-            return from.getColumns();
         }
 
         @Override
@@ -469,25 +500,7 @@ public class SqlAnalizer {
             return "empty\n  <- " + from.toString();
         }
     }
-    
-    public static class AdjustPlan extends NodePlan{
 
-        public AdjustPlan(QueryPlan from) {
-            super(from);
-        }
-        
-        @Override
-        List<Column> getColumns() {
-            return from.getColumns();
-        }
-
-        @Override
-        Records<Tuple> records() {
-            throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
-        }
-        
-    }
-    
     public static class TablePlan extends QueryPlan{
         Table table;
 
@@ -516,18 +529,12 @@ public class SqlAnalizer {
         }
     }
 
-    public static class OrderPlan extends NodePlan{
-        List<Pair<SqlValue, Boolean>> order;
+    public static class OrderPlan extends ColumnThroughPlan{
+        List<Pair<? extends SqlValue, Boolean>> order;
         
-        public OrderPlan(QueryPlan from, List<Pair<SqlValue, Boolean>> order) {
+        public OrderPlan(QueryPlan from, List<Pair<? extends SqlValue, Boolean>> order) {
             super(from);
             this.order = order;
-        }
-
-        @Override
-        List<Column> getColumns() {
-            
-            return from.getColumns();
         }
 
         @Override
@@ -539,7 +546,7 @@ public class SqlAnalizer {
                 Tuple t = line.get();
                 tuples.add(Pair.of(t, 
                         order.stream().map(p -> p.map(v -> eval(v, columnIndex, t), b -> b))
-                                .collect(Collectors.toList())));
+                                .collect(toList())));
             }
             tuples.sort((o1, o2) -> {
                 for(Iterator<Pair<SqlValue, Boolean>> itel =o1.right.iterator(), iter = o2.right.iterator(); itel.hasNext() && iter.hasNext();){
@@ -593,7 +600,7 @@ public class SqlAnalizer {
         List<Column> getColumns() {
             return Stream.concat(
                     from.getColumns().stream(), 
-                    secondary.getColumns().stream()).collect(Collectors.toList());
+                    secondary.getColumns().stream()).collect(toList());
         }
 
         @Override
@@ -608,7 +615,7 @@ public class SqlAnalizer {
                 for(Optional<Tuple> sline;(sline = srec.next()).isPresent();){
                     Tuple joinline = new Tuple(0, Stream.concat(
                             line.row.stream(), sline.get().row.stream())
-                            .collect(Collectors.toList()));
+                            .collect(toList()));
                     SqlValue v = eval(cond, columnIndex, joinline);
                     if(v instanceof BooleanValue && ((BooleanValue)v).value){
                         return Optional.of(joinline);
@@ -619,13 +626,130 @@ public class SqlAnalizer {
                                 line.row.stream(),
                                 IntStream.range(0, getColumns().size() - line.row.size()).mapToObj(i -> Optional.empty())),
                         IntStream.range(0, secondary.getColumns().size()).mapToObj(i -> Optional.empty()))
-                        .collect(Collectors.toList())));
+                        .collect(toList())));
             };
         }
         
         @Override
         public String toString() {
             return "join(nested loop)\n  <- " + from.toString() + "\n  /\n  <- " + secondary.toString();
+        }
+
+    }
+    public static void gatherAggregation(List<AggregationExp> aggs, SqlValue v){
+        match(v, 
+            caseOf(GeneralFuncExp.class, f -> {
+                f.params.forEach(p -> gatherAggregation(aggs, p));
+            }),
+            caseOf(BinaryOp.class, bin -> {
+                gatherAggregation(aggs, bin.left);
+                gatherAggregation(aggs, bin.right);
+            }),
+            caseOf(TernaryOp.class, ter -> {
+                gatherAggregation(aggs, ter.cond);
+                gatherAggregation(aggs, ter.first);
+                gatherAggregation(aggs, ter.sec);
+            }),
+            caseOf(AggregationExp.class, agg ->{
+                aggs.add(agg);
+            })
+        );
+    }
+    static final UnaryOperator<Integer> INC = i -> i + 1;
+    public static class AggregationPlan extends NodePlan{
+        List<SqlValue> group;
+        List<SqlValue> fields;
+        public AggregationPlan(QueryPlan from, List<SqlValue> fields, List<SqlValue> group) {
+            super(from);
+            this.fields = fields;
+            this.group = group;
+        }
+        
+        @Override
+        List<Column> getColumns() {
+            return zip(fields.stream(), Stream.iterate(1, INC))
+                    .map(p -> p.reduce((f, i) -> f instanceof FieldValue ? 
+                            ((FieldValue)f).column : new Column(i + "")))
+                    .collect(toList());
+        }
+    
+        @Override
+        Records<Tuple> records() {
+            Records<Tuple> records = from.records();
+            Map<Column, Integer> columnIndex = from.getColumnIndex();
+            //集計関数を集める
+            List<AggregationExp> aggs = new ArrayList<>();
+            fields.forEach(f -> gatherAggregation(aggs, f));
+            aggs.forEach(a -> a.reset());
+            //集計行インデックス
+            Map<Column, Integer> grpColIndex = zip(group.stream(),Stream.iterate(1, INC))
+                    .map(p -> p.reduce((v, i) -> Pair.of(
+                            v instanceof FieldValue ? ((FieldValue)v).column : 
+                                    new Column(i + "") , i)))
+                    .collect(toMap(p -> p.left, p -> p.right));
+            //前の行の値(初期値Null)
+            List<SqlValue> oldValue = IntStream.range(0, group.size())
+                    .mapToObj(i -> new NullValue()).collect(toList());
+            
+            return new Records<Tuple>() {
+                private boolean top = true;
+                private boolean end = false;
+                
+                private Optional<Tuple> createResult(List<SqlValue> gvalues){
+                    Tuple t = new Tuple(0, 
+                            gvalues.stream().map(sv-> unwrap(sv)).collect(toList()));
+                    List<Optional<?>> fv = fields.stream()
+                            .map(f -> eval(f, grpColIndex, t))
+                            .map(f -> unwrap(f))
+                            .collect(toList());
+                    return Optional.of(new Tuple(0, fv));
+                }
+
+                @Override
+                public Optional<Tuple> next() {
+                    if(end){
+                        return Optional.empty();
+                    }
+                    for(;;){
+                        Optional<Tuple> oline = records.next();
+                        if(oline.isPresent()){
+                            //まだある
+                            Optional<Tuple> result = Optional.empty();
+                            //group値を得る
+                            List<SqlValue> gvalues = group.stream()
+                                    .map(sv -> eval(sv, columnIndex, oline.get()))
+                                    .collect(toList());
+                            if(!group.isEmpty() && !top && //groupがあり先頭ではなく違う
+                                    zip(gvalues.stream(), oldValue.stream())//oldValueとの比較
+                                            .anyMatch(p -> !p.left.equals(p.right)))
+                            {
+                                //かわった
+                                //結果生成
+                                result = createResult(gvalues);
+                                aggs.forEach(a -> a.reset());
+                            }
+                            top = false;
+                            //oldValueの更新
+                            zip(Stream.iterate(0, i -> i + 1), gvalues.stream())
+                                    .forEach(p -> oldValue.set(p.left, p.right));
+                            //集計
+                            aggs.forEach(a -> a.accept(columnIndex, oline.get()));
+                            if(result.isPresent()){
+                                return result;
+                            }
+                        }else{
+                            //もうおわり
+                            end = true;
+                            if(group.isEmpty() || !top){
+                                //集計行がないか最初ではない
+                                //残りの結果を返す
+                                return createResult(oldValue);
+                            }
+                            return Optional.empty();
+                        }
+                    }
+                }
+            };
         }
 
     }
@@ -660,12 +784,16 @@ public class SqlAnalizer {
                                 "field " + f.field.ident + " of " + f.table.ident + " not found"))
             ),
             caseOfRet(ASTFunc.class, f ->{
-                List<SqlValue> params = f.params.stream().map(p -> validate(env, p)).collect(Collectors.toList());
+                List<SqlValue> params = f.params.stream().map(p -> validate(env, p)).collect(toList());
                 switch(f.name.ident){
                     case "length":
                         return new LengthFunc(params);
                     case "now":
                         return new NowFunc(params);
+                    case "count":
+                        return new CountExp(params);
+                    case "sum":
+                        return new SumExp(params);
                     default:
                         throw new RuntimeException(f.name.ident + " function not defined.");
                 }
@@ -698,23 +826,47 @@ public class SqlAnalizer {
         }
         
         // where 解析
-        Optional<SqlValue> cond = sql.where.map(a -> validate(env, a));
-        
-        if(cond.isPresent()){
+        if(sql.where.isPresent()){
+            Optional<SqlValue> cond = sql.where.map(a -> validate(env, a));
             primary = new FilterPlan(primary, cond.get());
         }
         //group by
         if(!sql.groupby.isEmpty()){
             // selectでgroup byのフィールド以外が使われていないか走査
-            //order byの挿入
+            List<SqlValue> group = sql.groupby.stream().map(gb -> validate(env, gb)).collect(toList());
+            //集計用order byの挿入
+            List<Pair<? extends SqlValue, Boolean>> order = group.stream().map(g -> Pair.of(g, true))
+                    .collect(toList());
+            primary = new OrderPlan(primary, order);
             //集計の挿入
+            List<SqlValue> aggregation = Stream.of(
+                    sql.select.stream().map(ast -> validate(env, ast)),
+                    sql.order.stream().map(ast -> validate(env, ast.exp)),
+                    sql.having.map(c -> validate(env, c)).map(sv -> Stream.of(sv)).orElse(Stream.empty())
+            ).flatMap(s -> s).collect(toList());
+            primary = new AggregationPlan(primary, aggregation, group);
+            //having filter
+            if(sql.having.isPresent()){
+                primary = new FilterPlan(primary, new FieldIndex(sql.select.size() + sql.order.size()));
+            }
+            //order by
+            if(!sql.order.isEmpty()){
+                primary = new OrderPlan(primary, 
+                        zip(sql.order.stream(), Stream.iterate(sql.select.size(), INC))
+                    .map(p -> p.reduce((o, i) -> Pair.of(new FieldIndex(i), o.asc))).collect(toList()));
+            }
+            
+            //select
+            List<FieldIndex> columns = IntStream.range(0, sql.select.size())
+                    .mapToObj(i -> new FieldIndex(i)).collect(toList());
+            return new SelectPlan(primary, columns);
         }
         
         // order by
         if(!sql.order.isEmpty()){
-            List<Pair<SqlValue, Boolean>> order = sql.order.stream()
+            List<Pair<? extends SqlValue, Boolean>> order = sql.order.stream()
                     .map(ov -> Pair.of(validate(env, ov.exp), ov.asc))
-                    .collect(Collectors.toList());
+                    .collect(toList());
             primary = new OrderPlan(primary, order);
         }
         
@@ -722,7 +874,7 @@ public class SqlAnalizer {
         //todo 集計関数の確認
         List<SqlValue> columns = sql.select.stream()
                 .map(c -> validate(env, c))
-                .collect(Collectors.toList());
+                .collect(toList());
         return new SelectPlan(primary, columns);
     }
     
@@ -780,8 +932,7 @@ public class SqlAnalizer {
         
         //andをリストに分解
         List<SqlValue> ands = new ArrayList<>();
-        conds.stream()
-                .forEach(cond -> andSerialize(ands, cond));
+        conds.forEach(cond -> andSerialize(ands, cond));
         
         boolean alwaysFalse = false;
         List<SqlValue> root = new ArrayList<>();
@@ -860,14 +1011,14 @@ public class SqlAnalizer {
         
         Counter c = new Counter();
         Map<String, Integer> cols = t.columns.stream()
-                .collect(Collectors.toMap(col -> col.name, col -> c.getCount() - 1));
+                .collect(toMap(col -> col.name, col -> c.getCount() - 1));
         int[] indexes;
         if(insert.field.isPresent()){
             indexes = insert.field.get().stream().mapToInt(id -> cols.get(id.ident)).toArray();
         }else{
             indexes = IntStream.range(0, t.columns.size()).toArray();
         }
-        insert.value.stream().forEach(ro -> {
+        insert.value.forEach(ro -> {
             Object[] row = new Object[t.columns.size()];
             for(int i = 0; i < ro.size(); ++i){
                 row[indexes[i]] = unwrap(validate(null, ro.get(i))).orElse(null);
@@ -921,10 +1072,10 @@ public class SqlAnalizer {
         }
         Counter c = new Counter();
         Map<String, Integer> cols = t.columns.stream()
-                .collect(Collectors.toMap(col -> col.name, col -> c.getCount() - 1));
+                .collect(toMap(col -> col.name, col -> c.getCount() - 1));
         List<Map.Entry<Integer, SqlValue>> values = 
                 update.values.stream().map(v -> new AbstractMap.SimpleEntry<>(
-                        cols.get(v.field.ident), validate(env, v.value))).collect(Collectors.toList());
+                        cols.get(v.field.ident), validate(env, v.value))).collect(toList());
         Map<Column, Integer> colIdx = primary.getColumnIndex();
         Records<Tuple> rec = primary.records();
         for(Optional<Tuple> oline; (oline = rec.next()).isPresent(); ){
@@ -934,7 +1085,7 @@ public class SqlAnalizer {
                 copy.add(Optional.empty());
             }
             
-            values.stream().forEach(me -> {
+            values.forEach(me -> {
                 copy.set(me.getKey(), unwrap(eval(me.getValue(), colIdx, line)));
             });
             t.update(line.rid, copy);
@@ -968,7 +1119,7 @@ public class SqlAnalizer {
             line.ifPresent(l -> {
                 System.out.println(l.row.stream()
                         .map(o -> o.map(v -> v.toString()).orElse("null"))
-                        .collect(Collectors.joining(",", "[", "]")));
+                        .collect(joining(",", "[", "]")));
             });
         }
         System.out.println();
@@ -976,9 +1127,9 @@ public class SqlAnalizer {
     
     public static void main(String[] args) {
         Table tshohin = new Table("shohin", Stream.of("id", "name", "bunrui_id", "price")
-                .map(s -> new Column(s)).collect(Collectors.toList()));
+                .map(s -> new Column(s)).collect(toList()));
         Table tbunrui = new Table("bunrui", Stream.of("id", "name", "seisen")
-                .map(s -> new Column(s)).collect(Collectors.toList()));
+                .map(s -> new Column(s)).collect(toList()));
         tbunrui
             .insert(1, "野菜", 1)
             .insert(2, "くだもの", 1)
@@ -997,6 +1148,7 @@ public class SqlAnalizer {
         exec(sc, "insert into bunrui(name, id) values('酒', 5 )");
         exec(sc, "insert into bunrui(id, name) values(6, 'ビール' )");
         exec(sc, "insert into bunrui(id, name, seisen) values(7, '麺', 2), (8, '茶', 2)");
+        exec(sc, "select bunrui_id, sum(price), count(price), 2 + 3 from shohin group by bunrui_id having count(price)>0 order by sum(price)");
         exec(sc, "select id,name, now(), length(name) from bunrui");
         exec(sc, "select * from bunrui");
         exec(sc, "select * from bunrui order by id desc");

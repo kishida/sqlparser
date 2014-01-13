@@ -7,13 +7,17 @@
 package kis.sqlparser;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import kis.sqlparser.SqlAnalizer.*;
 import kis.sqlparser.SqlParser.IntValue;
 import kis.sqlparser.Table.Tuple;
+import static org.hamcrest.CoreMatchers.is;
+import static org.junit.Assert.assertThat;
 import org.junit.Test;
 
 /**
@@ -45,4 +49,16 @@ public class SqlAnalizerTest {
         System.out.println(SqlAnalizer.eval(new BinaryOp(new FieldValue(new Column("id")), new IntValue(123), "="), cols, collect));
     }
     
+    @Test
+    public void nullの比較(){
+        assertThat(new NullValue().equals(new NullValue()), is(true));
+    }
+    
+    @Test
+    public void streamToListはimmutableか(){
+        //immutableではないようだ。
+        List<Integer> list = IntStream.range(0, 10).boxed().collect(Collectors.toList());
+        list.set(3, 0);
+        list.forEach(i -> System.out.println(i));
+    }
 }

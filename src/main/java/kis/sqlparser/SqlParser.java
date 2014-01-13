@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Optional;
 import kis.sqlparser.SqlAnalizer.SqlValue;
 import lombok.AllArgsConstructor;
+import lombok.EqualsAndHashCode;
 import lombok.ToString;
 import org.codehaus.jparsec.OperatorTable;
 import org.codehaus.jparsec.Parser;
@@ -45,7 +46,7 @@ public class SqlParser {
     public static interface AST{}
     public static interface ASTExp extends AST{}
     // integer
-    @AllArgsConstructor
+    @AllArgsConstructor @EqualsAndHashCode
     public static class IntValue implements ASTExp, SqlValue{
         int value;
         @Override
@@ -67,7 +68,7 @@ public class SqlParser {
     }
     
     // str
-    @AllArgsConstructor
+    @AllArgsConstructor @EqualsAndHashCode
     public static class StringValue implements ASTExp, SqlValue{
         String value;
         @Override
