@@ -682,7 +682,7 @@ public class SqlAnalizer {
             fields.forEach(f -> gatherAggregation(aggs, f));
             aggs.forEach(a -> a.reset());
             //集計行インデックス
-            Map<Column, Integer> grpColIndex = zip(group.stream(),Stream.iterate(1, INC))
+            Map<Column, Integer> grpColIndex = zip(group.stream(),Stream.iterate(0, INC))
                     .map(p -> p.reduce((v, i) -> Pair.of(
                             v instanceof FieldValue ? ((FieldValue)v).column : 
                                     new Column(i + "") , i)))
@@ -752,6 +752,10 @@ public class SqlAnalizer {
             };
         }
 
+        @Override
+        public String toString() {
+            return "agregate[]<-" + from.toString();
+        }
     }
     
     public static SqlValue validate(Map<String, Table> env, AST ast){
