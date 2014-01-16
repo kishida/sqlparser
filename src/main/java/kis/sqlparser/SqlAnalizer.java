@@ -1096,6 +1096,13 @@ public class SqlAnalizer {
         }
         
     }
+    
+    public static void createTable(Schema sc, ASTCreateTable ct){
+        Table table = new Table(ct.tableName.ident, 
+                ct.fields.stream().map(id -> new Column(id.ident)).collect(toList()));
+        sc.tables.put(table.name, table);
+    }
+    
     public static void exec(Schema sc, String sqlstr){
         Parser<SqlParser.ASTStatement> parser = SqlParser.parser();
         SqlParser.AST sql = parser.parse(sqlstr);
@@ -1107,6 +1114,9 @@ public class SqlAnalizer {
             return;
         }else if(sql instanceof ASTDelete){
             delete(sc, (ASTDelete) sql);
+            return;
+        }else if(sql instanceof ASTCreateTable){
+            createTable(sc, (ASTCreateTable)sql);
             return;
         }else if(!(sql instanceof ASTSelect)){
             return;
@@ -1148,6 +1158,10 @@ public class SqlAnalizer {
             .insert(6, "のこぎり");
         
         Schema sc = new Schema(Arrays.asList(tshohin, tbunrui));
+        exec(sc, "create table member(id, name, address)");
+        exec(sc, "insert into member values(1, 'きしだ', '福岡'), (2, 'ほうじょう', '京都')");
+        exec(sc, "select * from member");
+        
         exec(sc, "insert into bunrui values(4, '周辺機器', 2)");
         exec(sc, "insert into bunrui(name, id) values('酒', 5 )");
         exec(sc, "insert into bunrui(id, name) values(6, 'ビール' )");
