@@ -1103,6 +1103,32 @@ public class SqlAnalizer {
         sc.tables.put(table.name, table);
     }
     
+    public static void createIndex(Schema sc, ASTCreateIndex ci){
+        String tblname = ci.table.map(t -> t.ident).orElseThrow(() -> 
+                new RuntimeException("need table for index"));
+        Table tbl = sc.find(tblname).orElseThrow(() -> 
+                new RuntimeException("table not found:" + tblname));
+        if(ci.field.size() != 1) throw new RuntimeException("multiple index field is not supported.");
+        Pair<Column, Integer> colidx = zip(tbl.columns.stream(), Stream.iterate(0, INC))
+                .filter(p -> p.left.name.equals(ci.field.get(0).ident))
+                .findFirst()
+                .orElseThrow(() -> new RuntimeException("field is not found:" + ci.field.get(0).ident));
+
+        String method = ci.method.map(m -> m.ident).orElse("tree");
+        Index idx;
+        switch(method){
+            case "tree":
+                idx = new Index.TreeIndex(colidx.right);
+                break;
+            case "hash":
+                idx = new Index.HashIndex(colidx.right);
+                break;
+            default:
+                throw new RuntimeException("index method " + method + " is not supported");
+        }
+        tbl.addIndex(colidx.left, idx);
+    }
+    
     public static void exec(Schema sc, String sqlstr){
         Parser<SqlParser.ASTStatement> parser = SqlParser.parser();
         SqlParser.AST sql = parser.parse(sqlstr);
@@ -1117,6 +1143,9 @@ public class SqlAnalizer {
             return;
         }else if(sql instanceof ASTCreateTable){
             createTable(sc, (ASTCreateTable)sql);
+            return;
+        }else if(sql instanceof ASTCreateIndex){
+            createIndex(sc, (ASTCreateIndex)sql);
             return;
         }else if(!(sql instanceof ASTSelect)){
             return;
