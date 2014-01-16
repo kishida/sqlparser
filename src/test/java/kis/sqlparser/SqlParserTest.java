@@ -153,4 +153,23 @@ public class SqlParserTest {
         System.out.println(parser.parse("price"));
         System.out.println(parser.parse("bunrui.price"));
     }
+    <T> Parser<T> from(Parser<T> parser){
+        return parser.from(SqlParser.tokenizer, SqlParser.ignored);
+    }
+    @Test
+    public void createIndex(){
+        //Parser<SqlParser.ASTCreateIndex> parser = from(SqlParser.createIndex());
+        Parser<SqlParser.ASTStatement> parser = SqlParser.parser();
+        System.out.println(parser.parse("create index on shohin(id)"));
+        System.out.println(parser.parse("create index on shohin using hash (id)"));
+        System.out.println(parser.parse("create index idx_shohin_id on shohin using hash (id)"));
+        System.out.println(parser.parse("create index idx_shohin_id on shohin using hash (id, name)"));
+    }
+    
+    @Test
+    public void createTable(){
+        //Parser<SqlParser.ASTCreateTable> parser = from(SqlParser.createTable());
+        Parser<SqlParser.ASTStatement> parser = SqlParser.parser();
+        System.out.println(parser.parse("create table shohin(id, name)"));
+    }
 }

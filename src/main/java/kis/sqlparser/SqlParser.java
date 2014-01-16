@@ -28,7 +28,8 @@ public class SqlParser {
     static final String[] keywords = {
         "between", "and", "or", "select", "from", "left", "join", "on", "where", 
         "insert", "into", "values", "update", "set", "delete", 
-        "order", "by", "asc", "desc", "group", "having"
+        "order", "by", "asc", "desc", "group", "having",
+        "create", "table", "index", "using"
     };
     
     static final String[] operators = {
@@ -333,9 +334,50 @@ public class SqlParser {
                 (tbl, values, where) -> new ASTUpdate(tbl, values, Optional.ofNullable(where)));
     }
     
+    // createindex := "create" "index" ident? "on" ident ("using" ident)? "(" ident ("," ident)* ")"
+    @AllArgsConstructor @ToString
+    public static class ASTCreateIndex implements ASTStatement{
+        Optional<ASTIdent> indexName;
+        Optional<ASTIdent> table;
+        Optional<ASTIdent> method;
+        List<ASTIdent> field;
+    }
+    public static Parser<ASTCreateIndex> createIndex(){
+        return Parsers.sequence(
+            terms.phrase("create", "index").next(identifier().optional()),
+            terms.token("on").next(identifier()),
+            terms.token("using").next(identifier()).optional(),
+            identifier().sepBy(terms.token(",")).between(terms.token("("), terms.token(")")),
+            (n, t, m, f) -> new ASTCreateIndex(
+                    Optional.ofNullable(n), Optional.of(t), Optional.ofNullable(m), f));
+    }
+    // createtableField := ident (ident ("(" integer ")")?)?
+    
+    
+    // createtableIndex := "index" ident? ("using" ident)? "(" ident ("," ident)* ")"
+    public static Parser<ASTCreateIndex> createTableIndex(){
+        return Parsers.sequence(
+            terms.token("index").next(identifier().optional()),
+            terms.token("using").next(identifier()).optional(),
+            identifier().sepBy(terms.token(",")).between(terms.token("("), terms.token(")")),
+            (n, m, f) -> new ASTCreateIndex(
+                    Optional.ofNullable(n), Optional.empty(), Optional.ofNullable(m), f));
+    }
+    // createtable := "create" "table" ident "(" ident ("," ident)* ")"
+    @AllArgsConstructor @ToString
+    public static class ASTCreateTable implements ASTStatement{
+        ASTIdent tableName;
+        List<ASTIdent> fields;
+    }
+    public static Parser<ASTCreateTable> createTable(){
+        return Parsers.sequence(
+            terms.phrase("create", "table").next(identifier()),
+                identifier().sepBy1(terms.token(",")).between(terms.token("("), terms.token(")")),
+                (t, f) -> new ASTCreateTable(t, f));
+    }
     
     public static Parser<ASTStatement> parser(){
-        return Parsers.or(selectStatement(), insert(), update(), delete()).from(tokenizer, ignored);
+        return Parsers.or(selectStatement(), insert(), update(), delete(), createTable(), createIndex()).from(tokenizer, ignored);
     }
 
 }

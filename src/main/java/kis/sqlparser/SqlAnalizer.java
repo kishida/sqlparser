@@ -67,7 +67,7 @@ public class SqlAnalizer {
             return String.format("%s %s %s", left, op, right);
         }
     }
-    
+
     @AllArgsConstructor
     public static class FieldValue implements SqlValue{
         Column column;
