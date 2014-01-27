@@ -28,12 +28,22 @@ public class Table {
         long rid;
         List<Optional<?>> row;
     }
+    
+    public static class TableTuple extends Tuple{
+        long createTx;
+        long commitTx;
+
+        public TableTuple(long rid, Transaction tx, List<Optional<?>> row) {
+            super(rid, row);
+            this.createTx = tx.txId;
+        }
+    }
     String name;
     List<Column> columns;
     static long rid;
     Map<Column, List<Index>> indexes;
     
-    LinkedHashMap<Long, Tuple> data;
+    LinkedHashMap<Long, TableTuple> data;
     
     public Table(String name, List<Column> columns){
         this.name = name;
@@ -44,12 +54,12 @@ public class Table {
         this.indexes = new HashMap<>();
     }
     
-    public Table insert(Object... values){
+    public Table insert(Transaction tx, Object... values){
         if(columns.size() < values.length){
             throw new RuntimeException("values count is over the number of columns");
         }
         ++rid;
-        Tuple tuple = new Tuple(rid,
+        TableTuple tuple = new TableTuple(rid, tx,
                 Arrays.stream(values)
                         .map(Optional::ofNullable)
                         .collect(Collectors.toList()));
@@ -59,7 +69,7 @@ public class Table {
     }
 
     void update(long rid, List<Optional<?>> copy) {
-        Tuple tuple = data.get(rid);
+        TableTuple tuple = data.get(rid);
         List<Optional<?>> old = tuple.row;
         tuple.row = copy;
         indexes.values().stream().flatMap(is -> is.stream()).forEach(idx -> idx.update(old, tuple));

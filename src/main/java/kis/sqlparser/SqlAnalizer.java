@@ -26,6 +26,7 @@ import static kis.sqlparser.ObjectPatternMatch.*;
 import static kis.sqlparser.StreamUtils.zip;
 import kis.sqlparser.SqlParser.*;
 import kis.sqlparser.Table.Tuple;
+import kis.sqlparser.Table.TableTuple;
 import lombok.AllArgsConstructor;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
@@ -515,7 +516,7 @@ public class SqlAnalizer {
 
         @Override
         Records<Tuple> records() {
-            Iterator<Tuple> ite = table.data.values().iterator();
+            Iterator<TableTuple> ite = table.data.values().iterator();
             return () -> {
                 if(!ite.hasNext()) return Optional.empty();
                 Tuple tuple = ite.next();
@@ -1008,8 +1009,8 @@ public class SqlAnalizer {
         return plan;
     }
     
-    public static void insert(Schema sc, ASTInsert insert){
-        Table t = sc.find(insert.table.ident)
+    public static void insert(Context ctx, ASTInsert insert){
+        Table t = ctx.schema.find(insert.table.ident)
                 .orElseThrow(() -> new RuntimeException(
                         String.format("table %s not found.", insert.table.ident)));
         
@@ -1022,12 +1023,14 @@ public class SqlAnalizer {
         }else{
             indexes = IntStream.range(0, t.columns.size()).toArray();
         }
+        Transaction tx = ctx.schema.createTransaction();
+        
         insert.value.forEach(ro -> {
             Object[] row = new Object[t.columns.size()];
             for(int i = 0; i < ro.size(); ++i){
                 row[indexes[i]] = unwrap(validate(null, ro.get(i))).orElse(null);
             }
-            t.insert(row);
+            t.insert(tx, row);
         });
     }
     
@@ -1129,32 +1132,32 @@ public class SqlAnalizer {
         tbl.addIndex(colidx.left, idx);
     }
     
-    public static void exec(Schema sc, String sqlstr){
+    public static void exec(Context ctx, String sqlstr){
         Parser<SqlParser.ASTStatement> parser = SqlParser.parser();
         SqlParser.AST sql = parser.parse(sqlstr);
         if(sql instanceof ASTInsert){
-            insert(sc, (ASTInsert) sql);
+            insert(ctx, (ASTInsert) sql);
             return;
         }else if(sql instanceof ASTUpdate){
-            update(sc, (ASTUpdate)sql);
+            update(ctx.schema, (ASTUpdate)sql);
             return;
         }else if(sql instanceof ASTDelete){
-            delete(sc, (ASTDelete) sql);
+            delete(ctx.schema, (ASTDelete) sql);
             return;
         }else if(sql instanceof ASTCreateTable){
-            createTable(sc, (ASTCreateTable)sql);
+            createTable(ctx.schema, (ASTCreateTable)sql);
             return;
         }else if(sql instanceof ASTCreateIndex){
-            createIndex(sc, (ASTCreateIndex)sql);
+            createIndex(ctx.schema, (ASTCreateIndex)sql);
             return;
         }else if(!(sql instanceof ASTSelect)){
             return;
         }
         ASTSelect select = (ASTSelect) sql;
-        SelectPlan plan = analize(sc, select);
+        SelectPlan plan = analize(ctx.schema, select);
         System.out.println(sqlstr);
         System.out.println("初期プラン:" + plan);
-        plan = optimize(sc, plan);
+        plan = optimize(ctx.schema, plan);
         System.out.println("論理最適化:" + plan);
         
         Records<Tuple> rec = plan.records();
@@ -1169,63 +1172,63 @@ public class SqlAnalizer {
     }
     
     public static void main(String[] args) {
-        Table tshohin = new Table("shohin", Stream.of("id", "name", "bunrui_id", "price")
-                .map(s -> new Column(s)).collect(toList()));
-        Table tbunrui = new Table("bunrui", Stream.of("id", "name", "seisen")
-                .map(s -> new Column(s)).collect(toList()));
-        tbunrui
-            .insert(1, "野菜", 1)
-            .insert(2, "くだもの", 1)
-            .insert(3, "菓子", 2)
-            .insert(9, "団子");
-        tshohin
-            .insert(1, "りんご", 2, 250)
-            .insert(2, "キャベツ", 1, 200)
-            .insert(3, "たけのこの", 3, 150)
-            .insert(4, "きのこ", 3, 120)
-            .insert(5, "パソコン", 0, 34800)
-            .insert(6, "のこぎり");
+        Schema sc = new Schema();
+        Context ctx = sc.createContext();
+        ctx.exec("create table shohin(id, name, bunrui_id, price)");
+        ctx.exec("create table bunrui(id, name, seisen)");
         
-        Schema sc = new Schema(Arrays.asList(tshohin, tbunrui));
-        exec(sc, "create table member(id, name, address)");
-        exec(sc, "insert into member values(1, 'きしだ', '福岡'), (2, 'ほうじょう', '京都')");
-        exec(sc, "select * from member");
+        ctx.exec("insert into bunrui(id, name, seisen) values" +
+                "(1, '野菜', 1)," +
+                "(2, 'くだもの', 1)," +
+                "(3, '菓子', 2)," +
+                "(9, '団子', 0)");
+        ctx.exec("insert into shohin(id, name, bunrui_id, price) values" +
+                "(1, 'りんご', 2, 250),"+
+                "(2, 'キャベツ', 1, 200),"+
+                "(3, 'たけのこの', 3, 150),"+
+                "(4, 'きのこ', 3, 120),"+
+                "(5, 'パソコン', 0, 34800),"+
+                "(6, 'のこぎり')");
         
-        exec(sc, "insert into bunrui values(4, '周辺機器', 2)");
-        exec(sc, "insert into bunrui(name, id) values('酒', 5 )");
-        exec(sc, "insert into bunrui(id, name) values(6, 'ビール' )");
-        exec(sc, "insert into bunrui(id, name, seisen) values(7, '麺', 2), (8, '茶', 2)");
-        exec(sc, "select bunrui_id, sum(price), count(price), 2 + 3 from shohin group by bunrui_id having count(price)>0 order by sum(price)");
-        exec(sc, "select id,name, now(), length(name) from bunrui");
-        exec(sc, "select * from bunrui");
-        exec(sc, "select * from bunrui order by id desc");
-        exec(sc, "select * from bunrui order by seisen, id desc");
+        ctx.exec("create table member(id, name, address)");
+        ctx.exec("insert into member values(1, 'きしだ', '福岡'), (2, 'ほうじょう', '京都')");
+        ctx.exec("select * from member");
         
-        exec(sc, "select id,name,price,price*2 from shohin");
-        exec(sc, "select id, name from shohin where price between 130 and 200 or id=1");
-        exec(sc, "select id, name from shohin where price between 130 and 200");
+        ctx.exec("insert into bunrui values(4, '周辺機器', 2)");
+        ctx.exec("insert into bunrui(name, id) values('酒', 5 )");
+        ctx.exec("insert into bunrui(id, name) values(6, 'ビール' )");
+        ctx.exec("insert into bunrui(id, name, seisen) values(7, '麺', 2), (8, '茶', 2)");
+        ctx.exec("select bunrui_id, sum(price), count(price), 2 + 3 from shohin group by bunrui_id having count(price)>0 order by sum(price)");
+        ctx.exec("select id,name, now(), length(name) from bunrui");
+        ctx.exec("select * from bunrui");
+        ctx.exec("select * from bunrui order by id desc");
+        ctx.exec("select * from bunrui order by seisen, id desc");
+        
+        ctx.exec("select id,name,price,price*2 from shohin");
+        ctx.exec("select id, name from shohin where price between 130 and 200 or id=1");
+        ctx.exec("select id, name from shohin where price between 130 and 200");
         System.out.println("普通のJOIN");
-        exec(sc, "select shohin.id, shohin.name,bunrui.name"
+        ctx.exec("select shohin.id, shohin.name,bunrui.name"
                 + " from shohin left join bunrui on shohin.bunrui_id=bunrui.id");
         System.out.println("常に真なので条件省略");
-        exec(sc, "select id, name from shohin where 2 < 3");
+        ctx.exec("select id, name from shohin where 2 < 3");
         System.out.println("常に偽なので空になる");
-        exec(sc, "select id, name from shohin where price < 130 and 2 > 3");
+        ctx.exec("select id, name from shohin where price < 130 and 2 > 3");
         System.out.println("メインテーブルのみに関係のある条件はJOINの前に適用");
-        exec(sc, "select shohin.id, shohin.name,bunrui.name"
+        ctx.exec("select shohin.id, shohin.name,bunrui.name"
                 + " from shohin left join bunrui on shohin.bunrui_id=bunrui.id"
                 + " where shohin.price <= 300 and bunrui.seisen=1");
         System.out.println("update");
-        exec(sc, "update shohin set price=1500 where id=6");
-        exec(sc, "update shohin set price=price+500 where id=5");
-        exec(sc, "select * from shohin where id=6 or id=5");
-        exec(sc, "update shohin set price=price*105/100");
-        exec(sc, "select * from shohin");
+        ctx.exec("update shohin set price=1500 where id=6");
+        ctx.exec("update shohin set price=price+500 where id=5");
+        ctx.exec("select * from shohin where id=6 or id=5");
+        ctx.exec("update shohin set price=price*105/100");
+        ctx.exec("select * from shohin");
         System.out.println("削除");
-        exec(sc, "delete from bunrui where id=9");
-        exec(sc, "select * from bunrui");
+        ctx.exec("delete from bunrui where id=9");
+        ctx.exec("select * from bunrui");
         System.out.println("全削除");
-        exec(sc, "delete from bunrui");
-        exec(sc, "select * from bunrui");
+        ctx.exec("delete from bunrui");
+        ctx.exec("select * from bunrui");
     }
 }

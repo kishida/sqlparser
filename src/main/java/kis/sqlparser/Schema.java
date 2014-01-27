@@ -6,26 +6,39 @@
 
 package kis.sqlparser;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
-import lombok.NoArgsConstructor;
 
 /**
  *
  * @author naoki
  */
-@NoArgsConstructor
 public class Schema {
     Map<String, Table> tables;
+    long txId;
+
+    public Schema() {
+        this(new ArrayList<>());
+    }
     
     public Schema(List<Table> tables){
+        txId = 0;
         this.tables = tables.stream()
                 .collect(Collectors.toMap(t -> t.name, t -> t));
     }
     
     public Optional<Table> find(String name){
         return Optional.ofNullable(tables.get(name));
+    }
+    
+    public Context createContext(){
+        return new Context(this);
+    }
+    public Transaction createTransaction(){
+        ++txId;
+        return new Transaction(txId);
     }
 }
