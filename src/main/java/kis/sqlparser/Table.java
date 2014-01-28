@@ -36,6 +36,13 @@ public class Table {
         public TableTuple(long rid, Transaction tx, List<Optional<?>> row) {
             super(rid, row);
             this.createTx = tx.txId;
+            commitTx = 0;
+        }
+        public void commit(long txId){
+            commitTx = txId;
+        }
+        public boolean isCommited(){
+            return commitTx != 0;
         }
     }
     String name;
@@ -64,6 +71,7 @@ public class Table {
                         .map(Optional::ofNullable)
                         .collect(Collectors.toList()));
         data.put(rid, tuple);
+        tx.insertTuples.add(tuple);
         indexes.values().stream().flatMap(is -> is.stream()).forEach(idx -> idx.insert(tuple));
         return this;
     }

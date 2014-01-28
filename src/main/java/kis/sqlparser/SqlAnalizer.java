@@ -1023,14 +1023,15 @@ public class SqlAnalizer {
         }else{
             indexes = IntStream.range(0, t.columns.size()).toArray();
         }
-        Transaction tx = ctx.schema.createTransaction();
-        
-        insert.value.forEach(ro -> {
-            Object[] row = new Object[t.columns.size()];
-            for(int i = 0; i < ro.size(); ++i){
-                row[indexes[i]] = unwrap(validate(null, ro.get(i))).orElse(null);
-            }
-            t.insert(tx, row);
+
+        ctx.withTx(tx -> {
+            insert.value.forEach(ro -> {
+                Object[] row = new Object[t.columns.size()];
+                for(int i = 0; i < ro.size(); ++i){
+                    row[indexes[i]] = unwrap(validate(null, ro.get(i))).orElse(null);
+                }
+                t.insert(tx, row);
+            });
         });
     }
     

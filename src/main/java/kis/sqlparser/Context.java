@@ -6,17 +6,55 @@
 
 package kis.sqlparser;
 
-import lombok.AllArgsConstructor;
+import java.util.Optional;
+import java.util.function.Consumer;
 
 /**
  *
  * @author naoki
  */
-@AllArgsConstructor
 public class Context {
     Schema schema;
+    Optional<Transaction> currentTx;
+
+    public Context(Schema schema) {
+        this.schema = schema;
+        currentTx = Optional.empty();
+    }
     
     public void exec(String sql){
         SqlAnalizer.exec(this, sql);
+    }
+
+    public void begin(){
+        if(currentTx.isPresent()){
+            throw new RuntimeException("transaction already exist.");
+        }
+        currentTx = Optional.of(schema.createTransaction());
+    }
+    public void commit(){
+        currentTx.orElseThrow(() -> new RuntimeException("transaciton does not begin"))
+                .commit();
+        end();
+    }
+    public void abort(){
+        currentTx.orElseThrow(() -> new RuntimeException("transaciton does not begin"))
+                .abort();
+        end();
+    }
+    void end(){
+        currentTx = Optional.empty();
+    }
+    
+    public void withTx(Consumer<Transaction> cons){
+        Transaction tx = currentTx.orElseGet(() -> schema.createTransaction());
+        if(!tx.enable){
+            throw new RuntimeException("transaction is not enabled.");
+        }
+        cons.accept(tx);
+        
+        if(!currentTx.isPresent()){
+            tx.commit();
+        }
     }
 }

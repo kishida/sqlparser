@@ -39,6 +39,6 @@ public class Schema {
     }
     public Transaction createTransaction(){
         ++txId;
-        return new Transaction(txId);
+        return new Transaction(this, txId);
     }
 }
