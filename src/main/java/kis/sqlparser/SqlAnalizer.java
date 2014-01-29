@@ -504,9 +504,11 @@ public class SqlAnalizer {
 
     public static class TablePlan extends QueryPlan{
         Table table;
+        Optional<Transaction> tx;
 
-        public TablePlan(Table table) {
+        public TablePlan(Optional<Transaction> tx, Table table) {
             this.table = table;
+            this.tx = tx;
         }
 
         @Override
@@ -518,9 +520,12 @@ public class SqlAnalizer {
         Records<Tuple> records() {
             Iterator<TableTuple> ite = table.data.values().iterator();
             return () -> {
-                if(!ite.hasNext()) return Optional.empty();
-                Tuple tuple = ite.next();
-                return Optional.of(tuple);
+                while(ite.hasNext()) {
+                    Tuple tuple = ite.next();
+                    //if(tx.isPresent() && )
+                    return Optional.of(tuple);
+                }
+                return Optional.empty();
             };
         }
 
@@ -808,25 +813,25 @@ public class SqlAnalizer {
         );
     }
     
-    public static SelectPlan analize(Schema sc, SqlParser.ASTSelect sql){
+    public static SelectPlan analize(Context ctx, SqlParser.ASTSelect sql){
         Map<String, Table> env = new HashMap<>();
 
         //From解析
         SqlParser.ASTFrom from = sql.from;
         
-        Table table = sc.find(from.table.ident)
+        Table table = ctx.schema.find(from.table.ident)
                 .orElseThrow(() -> 
                         new RuntimeException("table " + from.table.ident + " not found"));
         env.put(from.table.ident, table);
-        QueryPlan primary = new TablePlan(table);
+        QueryPlan primary = new TablePlan(ctx.currentTx, table);
         
         for(ASTJoin j : from.joins){
             String t = j.table.ident;
-            Table tb = sc.find(t).orElseThrow(() ->
+            Table tb = ctx.schema.find(t).orElseThrow(() ->
                 new RuntimeException("join table " + t + " not found"));
             env.put(t, tb);
             SqlValue cond = validate(env, j.logic);
-            TablePlan right = new TablePlan(tb);
+            TablePlan right = new TablePlan(ctx.currentTx, tb);
             primary = new JoinPlan(primary, right, cond);
         }
         
@@ -1035,13 +1040,13 @@ public class SqlAnalizer {
         });
     }
     
-    public static void delete(Schema sc, ASTDelete del){
-        Table t = sc.find(del.table.ident)
+    public static void delete(Context ctx, ASTDelete del){
+        Table t = ctx.schema.find(del.table.ident)
                 .orElseThrow(() -> new RuntimeException(
                         String.format("table %s not found.", del.table.ident)));
         Map<String, Table> env = new HashMap<>();
         env.put(del.table.ident, t);
-        QueryPlan primary = new TablePlan(t);
+        QueryPlan primary = new TablePlan(ctx.currentTx, t);
 
         if(del.where.isPresent()){
             SqlValue cond = del.where.map(a -> validate(env, a)).get();
@@ -1060,13 +1065,13 @@ public class SqlAnalizer {
         }
         t.delete(deletes);
     }
-    public static void update(Schema sc, ASTUpdate update){
-        Table t = sc.find(update.table.ident)
+    public static void update(Context ctx, ASTUpdate update){
+        Table t = ctx.schema.find(update.table.ident)
                 .orElseThrow(() -> new RuntimeException(
                         String.format("table %s not found.", update.table.ident)));
         Map<String, Table> env = new HashMap<>();
         env.put(update.table.ident, t);
-        QueryPlan primary = new TablePlan(t);
+        QueryPlan primary = new TablePlan(ctx.currentTx, t);
 
         if(update.where.isPresent()){
             SqlValue cond = update.where.map(a -> validate(env, a)).get();
@@ -1140,10 +1145,10 @@ public class SqlAnalizer {
             insert(ctx, (ASTInsert) sql);
             return;
         }else if(sql instanceof ASTUpdate){
-            update(ctx.schema, (ASTUpdate)sql);
+            update(ctx, (ASTUpdate)sql);
             return;
         }else if(sql instanceof ASTDelete){
-            delete(ctx.schema, (ASTDelete) sql);
+            delete(ctx, (ASTDelete) sql);
             return;
         }else if(sql instanceof ASTCreateTable){
             createTable(ctx.schema, (ASTCreateTable)sql);
@@ -1155,7 +1160,7 @@ public class SqlAnalizer {
             return;
         }
         ASTSelect select = (ASTSelect) sql;
-        SelectPlan plan = analize(ctx.schema, select);
+        SelectPlan plan = analize(ctx, select);
         System.out.println(sqlstr);
         System.out.println("初期プラン:" + plan);
         plan = optimize(ctx.schema, plan);
