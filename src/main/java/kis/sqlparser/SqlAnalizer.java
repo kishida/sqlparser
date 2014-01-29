@@ -521,7 +521,23 @@ public class SqlAnalizer {
             Iterator<TableTuple> ite = table.data.values().iterator();
             return () -> {
                 while(ite.hasNext()) {
-                    Tuple tuple = ite.next();
+                    TableTuple tuple = ite.next();
+                    if(tx.isPresent()){
+                        //トランザクションがある
+                        if(tuple.createTx != tx.get().txId){
+                            //他のトランザクションのデータ
+                            if(tuple.isCommited()){
+                                //あとのトランザクションでコミットしたものは飛ばす
+                                if(tuple.commitTx > tx.get().txId) continue;
+                            }else{
+                                //コミットされていないものは飛ばす
+                                continue;
+                            }
+                        }
+                    }else{
+                        //トランザクションがない
+                        if(!tuple.isCommited()) continue;
+                    }
                     //if(tx.isPresent() && )
                     return Optional.of(tuple);
                 }
