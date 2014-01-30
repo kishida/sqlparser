@@ -528,7 +528,7 @@ public class SqlAnalizer {
                             //他のトランザクションのデータ
                             if(tuple.isCommited()){
                                 //あとのトランザクションでコミットしたものは飛ばす
-                                if(tuple.commitTx > tx.get().txId) continue;
+                                if(tuple.commitTx >= tx.get().txId) continue;
                             }else{
                                 //コミットされていないものは飛ばす
                                 continue;
@@ -1196,14 +1196,25 @@ public class SqlAnalizer {
     public static void main(String[] args) {
         Schema sc = new Schema();
         Context ctx = sc.createContext();
+        Context ctx2 = sc.createContext();
+        Context ctx3 = sc.createContext();
         ctx.exec("create table shohin(id, name, bunrui_id, price)");
         ctx.exec("create table bunrui(id, name, seisen)");
         
+        ctx.begin();
         ctx.exec("insert into bunrui(id, name, seisen) values" +
                 "(1, '野菜', 1)," +
                 "(2, 'くだもの', 1)," +
                 "(3, '菓子', 2)," +
                 "(9, '団子', 0)");
+        System.out.println("コミット前");
+        ctx2.exec("select * from bunrui");
+        ctx3.begin();
+        ctx.commit();
+        System.out.println("コミット後");
+        ctx2.exec("select * from bunrui");
+        System.out.println("コミット前に始まったトランザクション");
+        ctx3.exec("select * from bunrui");
         ctx.exec("insert into shohin(id, name, bunrui_id, price) values" +
                 "(1, 'りんご', 2, 250),"+
                 "(2, 'キャベツ', 1, 200),"+
