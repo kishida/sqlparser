@@ -524,16 +524,7 @@ public class SqlAnalizer {
                     TableTuple tuple = ite.next();
                     if(tx.isPresent()){
                         //トランザクションがある
-                        if(tuple.createTx != tx.get().txId){
-                            //他のトランザクションのデータ
-                            if(tuple.isCommited()){
-                                //あとのトランザクションでコミットしたものは飛ばす
-                                if(tuple.commitTx >= tx.get().txId) continue;
-                            }else{
-                                //コミットされていないものは飛ばす
-                                continue;
-                            }
-                        }
+                        if(!tx.get().tupleAvailable(tuple)) continue;
                     }else{
                         //トランザクションがない
                         if(!tuple.isCommited()) continue;
@@ -1075,11 +1066,11 @@ public class SqlAnalizer {
             primary = new FilterPlan(primary, ands);
         }
         Records<Tuple> rec = primary.records();
-        List<Tuple> deletes = new ArrayList<>();
+        List<TableTuple> deletes = new ArrayList<>();
         for(Optional<Tuple> line; (line = rec.next()).isPresent(); ){
-            deletes.add(line.get());
+            deletes.add((TableTuple)line.get());
         }
-        t.delete(deletes);
+        ctx.withTx(tx -> t.delete(tx, deletes));
     }
     public static void update(Context ctx, ASTUpdate update){
         Table t = ctx.schema.find(update.table.ident)
@@ -1107,19 +1098,20 @@ public class SqlAnalizer {
                         cols.get(v.field.ident), validate(env, v.value))).collect(toList());
         Map<Column, Integer> colIdx = primary.getColumnIndex();
         Records<Tuple> rec = primary.records();
-        for(Optional<Tuple> oline; (oline = rec.next()).isPresent(); ){
-            Tuple line = oline.get();
-            List<Optional<?>> copy = new ArrayList<>(line.row);
-            while(copy.size() < t.columns.size()){
-                copy.add(Optional.empty());
+        ctx.withTx(tx -> {
+            for(Optional<Tuple> oline; (oline = rec.next()).isPresent(); ){
+                Tuple line = oline.get();
+                List<Optional<?>> copy = new ArrayList<>(line.row);
+                while(copy.size() < t.columns.size()){
+                    copy.add(Optional.empty());
+                }
+
+                values.forEach(me -> {
+                    copy.set(me.getKey(), unwrap(eval(me.getValue(), colIdx, line)));
+                });
+                t.update(tx, line.rid, copy);
             }
-            
-            values.forEach(me -> {
-                copy.set(me.getKey(), unwrap(eval(me.getValue(), colIdx, line)));
-            });
-            t.update(line.rid, copy);
-        }
-        
+        });
     }
     
     public static void createTable(Schema sc, ASTCreateTable ct){

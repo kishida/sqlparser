@@ -8,6 +8,7 @@ package kis.sqlparser;
 
 import java.util.ArrayList;
 import java.util.List;
+import kis.sqlparser.Table.TableTuple;
 
 /**
  *
@@ -18,12 +19,14 @@ public class Transaction {
     long txId;
     boolean enable;
     List<Table.TableTuple> insertTuples;
+    List<ModifiedTuple> modifiedTuples;
 
     public Transaction(Schema schema, long txId) {
         this.schema = schema;
         this.txId = txId;
         enable = true;
         insertTuples = new ArrayList<>();
+        modifiedTuples = new ArrayList<>();
     }
     
     public void commit(){
@@ -40,5 +43,19 @@ public class Transaction {
             throw new RuntimeException("transaction is not enabled");
         }
         enable = false;
+    }
+    
+    public boolean tupleAvailable(TableTuple tuple){
+        if(tuple.createTx != txId){
+            //他のトランザクションのデータ
+            if(tuple.isCommited()){
+                //あとのトランザクションでコミットしたものは飛ばす
+                if(tuple.commitTx >= txId) return false;
+            }else{
+                //コミットされていないものは飛ばす
+                return false;
+            }
+        }
+        return true;
     }
 }
