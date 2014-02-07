@@ -542,6 +542,57 @@ public class SqlAnalizer {
         }
     }
 
+    public static class HistoryPlan extends QueryPlan{
+        Optional<Transaction> tx;
+        Table table;
+
+        public HistoryPlan(Optional<Transaction> tx, Table table) {
+            this.table = table;
+            this.tx = tx;
+        }
+
+        @Override
+        List<Column> getColumns() {
+            return table.columns;
+        }
+
+        @Override
+        Records<Tuple> records() {
+            Iterator<TableTuple> ite = table.getModifiedTuples(tx).iterator();
+            return () ->
+                ite.hasNext() ? Optional.of(ite.next()) : Optional.empty();
+        }
+    }
+    
+    public static class UnionPlan extends NodePlan{
+        QueryPlan secondPlan;
+
+        public UnionPlan(QueryPlan firstPlan, QueryPlan secondPlan) {
+            super(firstPlan);
+            this.secondPlan = secondPlan;
+        }
+
+        @Override
+        List<Column> getColumns() {
+            return from.getColumns();
+        }
+
+        @Override
+        Records<Tuple> records() {
+            List<Records<Tuple>> recs = Arrays.asList(
+                    from.records(), secondPlan.records());
+            int[] idx = {0};
+            return () -> {
+                while(idx[0] < recs.size()){
+                    Optional<Tuple> rec = recs.get(idx[0]).next();
+                    if(rec.isPresent()) return rec;
+                    ++idx[0];
+                }
+                return Optional.empty();
+            };
+        }
+    }
+    
     public static class OrderPlan extends ColumnThroughPlan{
         List<Pair<? extends SqlValue, Boolean>> order;
         
@@ -830,7 +881,9 @@ public class SqlAnalizer {
                 .orElseThrow(() -> 
                         new RuntimeException("table " + from.table.ident + " not found"));
         env.put(from.table.ident, table);
-        QueryPlan primary = new TablePlan(ctx.currentTx, table);
+        QueryPlan primary = new UnionPlan(
+                new TablePlan(ctx.currentTx, table),
+                new HistoryPlan(ctx.currentTx, table));
         
         for(ASTJoin j : from.joins){
             String t = j.table.ident;
@@ -838,7 +891,9 @@ public class SqlAnalizer {
                 new RuntimeException("join table " + t + " not found"));
             env.put(t, tb);
             SqlValue cond = validate(env, j.logic);
-            TablePlan right = new TablePlan(ctx.currentTx, tb);
+            QueryPlan right = new UnionPlan(
+                    new TablePlan(ctx.currentTx, tb),
+                    new HistoryPlan(ctx.currentTx, tb));
             primary = new JoinPlan(primary, right, cond);
         }
         

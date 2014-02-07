@@ -131,7 +131,18 @@ public class Table {
         indexes.computeIfAbsent(left, c -> new ArrayList<>()).add(idx);
     }
     
-    List<TableTuple> getModifiedTuples(Transaction tx){
+    List<TableTuple> getModifiedTuples(Optional<Transaction> otx){
+        if(!otx.isPresent()){
+            return modifiedTuples.values().stream()
+                    .map(list -> list.stream()
+                            .filter(mt -> (mt.isCommited() && mt instanceof ModifiedTuple.Updated) ||//コミットされてる更新
+                                    (!mt.isCommited() && mt instanceof ModifiedTuple.Deleted)) //もしくはコミットされてない削除
+                            .map(mt -> mt instanceof ModifiedTuple.Updated ? ((ModifiedTuple.Updated)mt).newTuple : mt.oldtuple)
+                            .findFirst())
+                    .filter(omt -> omt.isPresent()).map(omt -> omt.get())
+                    .collect(Collectors.toList());
+        }
+        Transaction tx = otx.get();
         return modifiedTuples.values().stream()
                 .map(list -> list.stream()
                         .filter(mt -> mt.modiryTx != tx.txId)//自分のトランザクションで変更されたものは省く
