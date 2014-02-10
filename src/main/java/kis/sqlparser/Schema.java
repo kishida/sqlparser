@@ -7,6 +7,8 @@
 package kis.sqlparser;
 
 import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -19,6 +21,7 @@ import java.util.stream.Collectors;
 public class Schema {
     Map<String, Table> tables;
     long txId;
+    LinkedList<Transaction> trans;
 
     public Schema() {
         this(new ArrayList<>());
@@ -28,6 +31,7 @@ public class Schema {
         txId = 0;
         this.tables = tables.stream()
                 .collect(Collectors.toMap(t -> t.name, t -> t));
+        this.trans = new LinkedList<>();
     }
     
     public Optional<Table> find(String name){
@@ -39,6 +43,21 @@ public class Schema {
     }
     public Transaction createTransaction(){
         ++txId;
-        return new Transaction(this, txId);
+        Transaction tx = new Transaction(this, txId);
+        trans.add(tx);
+        return tx;
+    }
+    
+    public void removeFinTx(){
+        for(Iterator<Transaction> ite = trans.iterator(); ite.hasNext();){
+            Transaction tx = ite.next();
+            if(tx.enable) break;
+            tx.removeModified();
+            ite.remove();
+        }
+    }
+    
+    public void removeTx(Transaction tx){
+        trans.remove(tx);
     }
 }

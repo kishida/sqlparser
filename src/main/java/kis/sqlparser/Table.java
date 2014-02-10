@@ -31,21 +31,23 @@ public class Table {
     }
     
     public static class TableTuple extends Tuple{
+        Table table;
         long createTx;
         long commitTx;
         boolean modified;
 
-        public TableTuple(long rid, Transaction tx, List<Optional<?>> row) {
-            this(rid, tx.txId, row);
+        public TableTuple(Table table, long rid, Transaction tx, List<Optional<?>> row) {
+            this(table, rid, tx.txId, row);
         }
-        public TableTuple(long rid, long txid, List<Optional<?>> row) {
+        public TableTuple(Table table, long rid, long txid, List<Optional<?>> row) {
             super(rid, row);
+            this.table = table;
             this.createTx = txid;
             commitTx = 0;
             modified = false;
         }
         public TableTuple(TableTuple tt){
-            this(tt.rid, tt.createTx, tt.row);
+            this(tt.table, tt.rid, tt.createTx, tt.row);
             commitTx = tt.commitTx;
             modified = tt.modified;
         }
@@ -79,37 +81,45 @@ public class Table {
             throw new RuntimeException("values count is over the number of columns");
         }
         ++rid;
-        TableTuple tuple = new TableTuple(rid, tx,
+        TableTuple tuple = new TableTuple(this, rid, tx,
                 Arrays.stream(values)
                         .map(Optional::ofNullable)
                         .collect(Collectors.toList()));
-        data.put(rid, tuple);
         tx.insertTuples.add(tuple);
-        indexes.values().stream().flatMap(is -> is.stream()).forEach(idx -> idx.insert(tuple));
+        dataInsert(tuple);
         return this;
+    }
+    public void dataInsert(TableTuple tuple){
+        data.put(tuple.rid, tuple);
+        indexes.values().stream().flatMap(is -> is.stream()).forEach(idx -> idx.insert(tuple));
     }
 
     void update(Transaction tx, long rid, List<Optional<?>> copy) {
-        TableTuple tuple = data.get(rid);
-        if(tuple.modified){
+        //自分のトランザクションで削除したものは変更できないし、よそのトランザクションで削除・変更されたものも変更できない
+        TableTuple oldtuple = data.get(rid);
+        if(oldtuple == null || oldtuple.modified){
             throw new RuntimeException("modify conflict");
         }
         //元の値を保存
-        TableTuple oldtuple = new TableTuple(tuple);
-        oldtuple.modified = true;
+        TableTuple tuple = new TableTuple(oldtuple);
+        tuple.commitTx = 0;//未コミット
+        tuple.createTx = tx.txId;
         //変更反映
         tuple.row = copy;
-        indexes.values().stream().flatMap(is -> is.stream()).forEach(idx -> idx.update(oldtuple.row, tuple));
-        if(tuple.createTx == tx.txId){
+        dataUpdate(tuple, oldtuple);
+        if(oldtuple.createTx == tx.txId){
             //自分のトランザクションで変更したデータは履歴をとらない
             return;
         }
-        tuple.commitTx = 0;//未コミット
-        tuple.createTx = tx.txId;
+        oldtuple.modified = true;
         //履歴を保存
         ModifiedTuple.Updated ud = new ModifiedTuple.Updated(oldtuple, tuple, tx.txId);
         addModifiedTuple(ud);
         tx.modifiedTuples.add(ud);
+    }
+    public void dataUpdate(TableTuple tuple, TableTuple oldtuple){
+        data.put(tuple.rid, tuple);
+        indexes.values().stream().flatMap(is -> is.stream()).forEach(idx -> idx.update(oldtuple.row, tuple));
     }
 
     void delete(Transaction tx, List<TableTuple> row) {

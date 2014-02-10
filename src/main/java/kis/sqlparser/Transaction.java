@@ -9,11 +9,13 @@ package kis.sqlparser;
 import java.util.ArrayList;
 import java.util.List;
 import kis.sqlparser.Table.TableTuple;
+import lombok.EqualsAndHashCode;
 
 /**
  *
  * @author naoki
  */
+@EqualsAndHashCode(of = {"schema", "txId"})
 public class Transaction {
     Schema schema;
     long txId;
@@ -32,10 +34,14 @@ public class Transaction {
     public void commit(){
         end();
         insertTuples.forEach(t -> t.commit(schema.txId));
+        
+        schema.removeFinTx();
     }
     
     public void abort(){
         end();
+        modifiedTuples.forEach(mt -> mt.abort());
+        schema.removeTx(this);
     }
     
     private void end(){
@@ -43,6 +49,10 @@ public class Transaction {
             throw new RuntimeException("transaction is not enabled");
         }
         enable = false;
+    }
+    
+    public void removeModified(){
+        modifiedTuples.forEach(mt -> mt.oldtuple.table.removeModifiedTuple(mt));
     }
     
     public boolean tupleAvailable(TableTuple tuple){

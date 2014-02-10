@@ -12,7 +12,7 @@ import kis.sqlparser.Table.TableTuple;
  *
  * @author naoki
  */
-public class ModifiedTuple {
+public abstract class ModifiedTuple {
     TableTuple oldtuple;
     long modiryTx;
     long commitTx;
@@ -27,6 +27,11 @@ public class ModifiedTuple {
         public Deleted(TableTuple oldtuple, long modiryTx) {
             super(oldtuple, modiryTx);
         }
+
+        @Override
+        public void execAbort() {
+            oldtuple.table.dataInsert(oldtuple);
+        }
     }
     public static class Updated extends ModifiedTuple{
         TableTuple newTuple;
@@ -34,7 +39,19 @@ public class ModifiedTuple {
             super(oldtuple, modiryTx);
             this.newTuple = newTuple;
         }
+
+        @Override
+        public void execAbort() {
+            oldtuple.table.dataUpdate(oldtuple, newTuple);
+        }
     }
+    
+    public void abort(){
+        oldtuple.modified = false;
+        execAbort();
+    }
+    public abstract void execAbort();
+    
     public boolean isCommited(){
         return commitTx != 0;
     }
