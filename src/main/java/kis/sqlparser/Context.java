@@ -8,6 +8,8 @@ package kis.sqlparser;
 
 import java.util.Optional;
 import java.util.function.Consumer;
+import kis.sqlparser.SqlAnalizer.Records;
+import kis.sqlparser.Table.Tuple;
 
 /**
  *
@@ -22,8 +24,8 @@ public class Context {
         currentTx = Optional.empty();
     }
     
-    public void exec(String sql){
-        SqlAnalizer.exec(this, sql);
+    public Records<Tuple> exec(String sql){
+        return SqlAnalizer.exec(this, sql);
     }
 
     public void begin(){

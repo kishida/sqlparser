@@ -1076,7 +1076,7 @@ public class SqlAnalizer {
         return plan;
     }
     
-    public static void insert(Context ctx, ASTInsert insert){
+    public static int insert(Context ctx, ASTInsert insert){
         Table t = ctx.schema.find(insert.table.ident)
                 .orElseThrow(() -> new RuntimeException(
                         String.format("table %s not found.", insert.table.ident)));
@@ -1100,9 +1100,10 @@ public class SqlAnalizer {
                 t.insert(tx, row);
             });
         });
+        return insert.value.size();
     }
     
-    public static void delete(Context ctx, ASTDelete del){
+    public static int delete(Context ctx, ASTDelete del){
         Table t = ctx.schema.find(del.table.ident)
                 .orElseThrow(() -> new RuntimeException(
                         String.format("table %s not found.", del.table.ident)));
@@ -1126,8 +1127,9 @@ public class SqlAnalizer {
             deletes.add((TableTuple)line.get());
         }
         ctx.withTx(tx -> t.delete(tx, deletes));
+        return deletes.size();
     }
-    public static void update(Context ctx, ASTUpdate update){
+    public static int update(Context ctx, ASTUpdate update){
         Table t = ctx.schema.find(update.table.ident)
                 .orElseThrow(() -> new RuntimeException(
                         String.format("table %s not found.", update.table.ident)));
@@ -1153,6 +1155,7 @@ public class SqlAnalizer {
                         cols.get(v.field.ident), validate(env, v.value))).collect(toList());
         Map<Column, Integer> colIdx = primary.getColumnIndex();
         Records<Tuple> rec = primary.records();
+        int[] ct = {0};
         ctx.withTx(tx -> {
             for(Optional<Tuple> oline; (oline = rec.next()).isPresent(); ){
                 Tuple line = oline.get();
@@ -1165,8 +1168,10 @@ public class SqlAnalizer {
                     copy.set(me.getKey(), unwrap(eval(me.getValue(), colIdx, line)));
                 });
                 t.update(tx, line.rid, copy);
+                ++ct[0];
             }
         });
+        return ct[0];
     }
     
     public static void createTable(Schema sc, ASTCreateTable ct){
@@ -1201,26 +1206,43 @@ public class SqlAnalizer {
         tbl.addIndex(colidx.left, idx);
     }
     
-    public static void exec(Context ctx, String sqlstr){
+    public static class IntRecords implements Records<Tuple>{
+        int value;
+        boolean top;
+
+        public IntRecords(int value) {
+            this.value = value;
+            top = true;
+        }
+        
+        @Override
+        public Optional<Tuple> next() {
+            if(top){
+                top = false;
+                return Optional.of(new Tuple(0, Arrays.asList(Optional.of(value))));
+            }else{
+                return Optional.empty();
+            }
+        }
+    }
+    
+    public static Records<Tuple> exec(Context ctx, String sqlstr){
         Parser<SqlParser.ASTStatement> parser = SqlParser.parser();
         SqlParser.AST sql = parser.parse(sqlstr);
         if(sql instanceof ASTInsert){
-            insert(ctx, (ASTInsert) sql);
-            return;
+            return new IntRecords(insert(ctx, (ASTInsert) sql));
         }else if(sql instanceof ASTUpdate){
-            update(ctx, (ASTUpdate)sql);
-            return;
+            return new IntRecords(update(ctx, (ASTUpdate)sql));
         }else if(sql instanceof ASTDelete){
-            delete(ctx, (ASTDelete) sql);
-            return;
+            return new IntRecords(delete(ctx, (ASTDelete) sql));
         }else if(sql instanceof ASTCreateTable){
             createTable(ctx.schema, (ASTCreateTable)sql);
-            return;
+            return new IntRecords(0);
         }else if(sql instanceof ASTCreateIndex){
             createIndex(ctx.schema, (ASTCreateIndex)sql);
-            return;
+            return new IntRecords(0);
         }else if(!(sql instanceof ASTSelect)){
-            return;
+            throw new RuntimeException("not supported");
         }
         ASTSelect select = (ASTSelect) sql;
         SelectPlan plan = analize(ctx, select);
@@ -1229,8 +1251,11 @@ public class SqlAnalizer {
         plan = optimize(ctx.schema, plan);
         System.out.println("論理最適化:" + plan);
         
-        Records<Tuple> rec = plan.records();
-        for(Optional<Tuple> line; (line = rec.next()).isPresent();){
+        return plan.records();
+    }
+    
+    static void printResult(Records<Tuple> result){
+        for(Optional<Tuple> line; (line = result.next()).isPresent();){
             line.ifPresent(l -> {
                 System.out.println(l.row.stream()
                         .map(o -> o.map(v -> v.toString()).orElse("null"))
@@ -1255,13 +1280,13 @@ public class SqlAnalizer {
                 "(3, '菓子', 2)," +
                 "(9, '団子', 0)");
         System.out.println("コミット前");
-        ctx2.exec("select * from bunrui");
+        printResult(ctx2.exec("select * from bunrui"));
         ctx3.begin();
         ctx.commit();
         System.out.println("コミット後");
-        ctx2.exec("select * from bunrui");
+        printResult(ctx2.exec("select * from bunrui"));
         System.out.println("コミット前に始まったトランザクション");
-        ctx3.exec("select * from bunrui");
+        printResult(ctx3.exec("select * from bunrui"));
         ctx.exec("insert into shohin(id, name, bunrui_id, price) values" +
                 "(1, 'りんご', 2, 250),"+
                 "(2, 'キャベツ', 1, 200),"+
@@ -1272,43 +1297,43 @@ public class SqlAnalizer {
         
         ctx.exec("create table member(id, name, address)");
         ctx.exec("insert into member values(1, 'きしだ', '福岡'), (2, 'ほうじょう', '京都')");
-        ctx.exec("select * from member");
+        printResult(ctx.exec("select * from member"));
         
         ctx.exec("insert into bunrui values(4, '周辺機器', 2)");
         ctx.exec("insert into bunrui(name, id) values('酒', 5 )");
         ctx.exec("insert into bunrui(id, name) values(6, 'ビール' )");
         ctx.exec("insert into bunrui(id, name, seisen) values(7, '麺', 2), (8, '茶', 2)");
-        ctx.exec("select bunrui_id, sum(price), count(price), 2 + 3 from shohin group by bunrui_id having count(price)>0 order by sum(price)");
-        ctx.exec("select id,name, now(), length(name) from bunrui");
-        ctx.exec("select * from bunrui");
-        ctx.exec("select * from bunrui order by id desc");
-        ctx.exec("select * from bunrui order by seisen, id desc");
+        printResult(ctx.exec("select bunrui_id, sum(price), count(price), 2 + 3 from shohin group by bunrui_id having count(price)>0 order by sum(price)"));
+        printResult(ctx.exec("select id,name, now(), length(name) from bunrui"));
+        printResult(ctx.exec("select * from bunrui"));
+        printResult(ctx.exec("select * from bunrui order by id desc"));
+        printResult(ctx.exec("select * from bunrui order by seisen, id desc"));
         
-        ctx.exec("select id,name,price,price*2 from shohin");
-        ctx.exec("select id, name from shohin where price between 130 and 200 or id=1");
-        ctx.exec("select id, name from shohin where price between 130 and 200");
+        printResult(ctx.exec("select id,name,price,price*2 from shohin"));
+        printResult(ctx.exec("select id, name from shohin where price between 130 and 200 or id=1"));
+        printResult(ctx.exec("select id, name from shohin where price between 130 and 200"));
         System.out.println("普通のJOIN");
-        ctx.exec("select shohin.id, shohin.name,bunrui.name"
-                + " from shohin left join bunrui on shohin.bunrui_id=bunrui.id");
+        printResult(ctx.exec("select shohin.id, shohin.name,bunrui.name"
+                + " from shohin left join bunrui on shohin.bunrui_id=bunrui.id"));
         System.out.println("常に真なので条件省略");
-        ctx.exec("select id, name from shohin where 2 < 3");
+        printResult(ctx.exec("select id, name from shohin where 2 < 3"));
         System.out.println("常に偽なので空になる");
-        ctx.exec("select id, name from shohin where price < 130 and 2 > 3");
+        printResult(ctx.exec("select id, name from shohin where price < 130 and 2 > 3"));
         System.out.println("メインテーブルのみに関係のある条件はJOINの前に適用");
-        ctx.exec("select shohin.id, shohin.name,bunrui.name"
+        printResult(ctx.exec("select shohin.id, shohin.name,bunrui.name"
                 + " from shohin left join bunrui on shohin.bunrui_id=bunrui.id"
-                + " where shohin.price <= 300 and bunrui.seisen=1");
+                + " where shohin.price <= 300 and bunrui.seisen=1"));
         System.out.println("update");
         ctx.exec("update shohin set price=1500 where id=6");
         ctx.exec("update shohin set price=price+500 where id=5");
-        ctx.exec("select * from shohin where id=6 or id=5");
+        printResult(ctx.exec("select * from shohin where id=6 or id=5"));
         ctx.exec("update shohin set price=price*105/100");
-        ctx.exec("select * from shohin");
+        printResult(ctx.exec("select * from shohin"));
         System.out.println("削除");
         ctx.exec("delete from bunrui where id=9");
-        ctx.exec("select * from bunrui");
+        printResult(ctx.exec("select * from bunrui"));
         System.out.println("全削除");
         ctx.exec("delete from bunrui");
-        ctx.exec("select * from bunrui");
+        printResult(ctx.exec("select * from bunrui"));
     }
 }
