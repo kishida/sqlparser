@@ -48,15 +48,6 @@ public class Schema {
         return tx;
     }
     
-    public void removeFinTx(){
-        for(Iterator<Transaction> ite = trans.iterator(); ite.hasNext();){
-            Transaction tx = ite.next();
-            if(tx.enable) break;
-            tx.removeModified();
-            ite.remove();
-        }
-    }
-    
     public void removeTx(Transaction tx){
         trans.remove(tx);
     }

@@ -35,7 +35,6 @@ public class Transaction {
         end();
         insertTuples.forEach(t -> t.commit(schema.txId));
         
-        schema.removeFinTx();
     }
     
     public void abort(){
@@ -49,10 +48,6 @@ public class Transaction {
             throw new RuntimeException("transaction is not enabled");
         }
         enable = false;
-    }
-    
-    public void removeModified(){
-        modifiedTuples.forEach(mt -> mt.oldtuple.table.removeModifiedTuple(mt));
     }
     
     public boolean tupleAvailable(TableTuple tuple){
