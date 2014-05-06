@@ -23,16 +23,7 @@ public abstract class ModifiedTuple {
         this.commitTx = 0;
     }
     
-    public static class Deleted extends ModifiedTuple{
-        public Deleted(TableTuple oldtuple, long modiryTx) {
-            super(oldtuple, modiryTx);
-        }
 
-        @Override
-        public void execAbort() {
-            oldtuple.table.dataInsert(oldtuple);
-        }
-    }
     public static class Updated extends ModifiedTuple{
         TableTuple newTuple;
         public Updated(TableTuple oldtuple, TableTuple newTuple, long modiryTx) {

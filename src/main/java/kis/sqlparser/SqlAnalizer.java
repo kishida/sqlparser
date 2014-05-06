@@ -603,6 +603,7 @@ public class SqlAnalizer {
 
         @Override
         Records<Tuple> records() {
+            //タプルと、ソート用値列をまとめる
             List<Pair<Tuple, List<Pair<SqlValue, Boolean>>>> tuples = new ArrayList<>();
             Records<Tuple> rec = from.records();
             Map<Column, Integer> columnIndex = getColumnIndex();

@@ -123,19 +123,9 @@ public class Table {
     }
 
     void delete(Transaction tx, List<TableTuple> row) {
-        if(row.stream().anyMatch(t -> t.modified)){
-            throw new RuntimeException("modify conflict");
-        }
+
         row.stream().map(t -> t.rid).forEach(data::remove);
         indexes.values().stream().flatMap(is -> is.stream()).forEach(idx -> row.forEach(r -> idx.delete(r)));
-        //履歴を保存
-        row.stream().filter(t -> t.createTx != tx.txId).forEach(t -> {
-            t.modified = true;
-            ModifiedTuple.Deleted dt = new ModifiedTuple.Deleted(t, rid);
-            addModifiedTuple(dt);
-            tx.modifiedTuples.add(dt);
-        });
-                
     }
     void addIndex(Column left, Index idx) {
         indexes.computeIfAbsent(left, c -> new ArrayList<>()).add(idx);
@@ -145,9 +135,8 @@ public class Table {
         if(!otx.isPresent()){
             return modifiedTuples.values().stream()
                     .map(list -> list.stream()
-                            .filter(mt -> (mt.isCommited() && mt instanceof ModifiedTuple.Updated) ||//コミットされてる更新
-                                    (!mt.isCommited() && mt instanceof ModifiedTuple.Deleted)) //もしくはコミットされてない削除
-                            .map(mt -> mt instanceof ModifiedTuple.Updated ? ((ModifiedTuple.Updated)mt).newTuple : mt.oldtuple)
+                            .filter(mt -> mt.isCommited()) //もしくはコミットされてない削除
+                            .map(mt -> ((ModifiedTuple.Updated)mt).newTuple)
                             .findFirst())
                     .filter(omt -> omt.isPresent()).map(omt -> omt.get())
                     .collect(Collectors.toList());
