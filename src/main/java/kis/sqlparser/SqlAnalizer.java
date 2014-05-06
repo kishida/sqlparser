@@ -395,7 +395,7 @@ public class SqlAnalizer {
     }
     
     @FunctionalInterface
-    static interface Records<T>{
+    public static interface Records<T>{
         Optional<T> next();
     }
     

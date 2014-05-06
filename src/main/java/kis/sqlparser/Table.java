@@ -164,11 +164,11 @@ public class Table {
     }
     
     void addModifiedTuple(ModifiedTuple mt){
-        modifiedTuples.computeIfAbsent(mt.oldtuple.rid, rid -> new LinkedList())
+        modifiedTuples.computeIfAbsent(mt.oldtuple.rid, r -> new LinkedList())
                 .push(mt);
     }
     void removeModifiedTuple(ModifiedTuple mt){
-        modifiedTuples.computeIfPresent(mt.oldtuple.rid, (rid, list) -> {
+        modifiedTuples.computeIfPresent(mt.oldtuple.rid, (r, list) -> {
             list.remove(mt);
             return list.isEmpty() ? null : list;
         });
