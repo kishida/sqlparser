@@ -19,16 +19,12 @@ import lombok.EqualsAndHashCode;
 public class Transaction {
     Schema schema;
     long txId;
-    boolean enable;
-    List<Table.TableTuple> insertTuples;
-    List<ModifiedTuple> modifiedTuples;
+    boolean enable = true;
+    List<Table.TableTuple> insertTuples = new ArrayList<>();
 
     public Transaction(Schema schema, long txId) {
         this.schema = schema;
         this.txId = txId;
-        enable = true;
-        insertTuples = new ArrayList<>();
-        modifiedTuples = new ArrayList<>();
     }
     
     public void commit(){
@@ -39,7 +35,6 @@ public class Transaction {
     
     public void abort(){
         end();
-        modifiedTuples.forEach(mt -> mt.abort());
         schema.removeTx(this);
     }
     

@@ -33,24 +33,13 @@ public class Table {
     public static class TableTuple extends Tuple{
         Table table;
         long createTx;
-        long commitTx;
-        boolean modified;
+        long commitTx = 0;
 
-        public TableTuple(Table table, long rid, Transaction tx, List<Optional<?>> row) {
-            this(table, rid, tx.txId, row);
-        }
-        public TableTuple(Table table, long rid, long txid, List<Optional<?>> row) {
+        public TableTuple(long rid, Transaction tx, List<Optional<?>> row) {
             super(rid, row);
-            this.table = table;
-            this.createTx = txid;
-            commitTx = 0;
-            modified = false;
+            this.createTx = tx.txId;
         }
-        public TableTuple(TableTuple tt){
-            this(tt.table, tt.rid, tt.createTx, tt.row);
-            commitTx = tt.commitTx;
-            modified = tt.modified;
-        }
+
         public void commit(long txId){
             commitTx = txId;
         }
@@ -61,19 +50,15 @@ public class Table {
     String name;
     List<Column> columns;
     static long rid;
-    Map<Column, List<Index>> indexes;
+    Map<Column, List<Index>> indexes = new HashMap<>();;
     
-    LinkedHashMap<Long, TableTuple> data;
-    HashMap<Long, LinkedList<ModifiedTuple>> modifiedTuples;
+    LinkedHashMap<Long, TableTuple> data = new LinkedHashMap<>();;
     
     public Table(String name, List<Column> columns){
         this.name = name;
         this.columns = columns.stream()
                 .map(col -> new Column(this, col.name))
                 .collect(Collectors.toList());
-        this.data = new LinkedHashMap<>();
-        this.modifiedTuples = new HashMap<>();
-        this.indexes = new HashMap<>();
     }
     
     public Table insert(Transaction tx, Object... values){
@@ -81,7 +66,7 @@ public class Table {
             throw new RuntimeException("values count is over the number of columns");
         }
         ++rid;
-        TableTuple tuple = new TableTuple(this, rid, tx,
+        TableTuple tuple = new TableTuple( rid, tx,
                 Arrays.stream(values)
                         .map(Optional::ofNullable)
                         .collect(Collectors.toList()));
@@ -94,29 +79,13 @@ public class Table {
         indexes.values().stream().flatMap(is -> is.stream()).forEach(idx -> idx.insert(tuple));
     }
 
-    void update(Transaction tx, long rid, List<Optional<?>> copy) {
-        //自分のトランザクションで削除したものは変更できないし、よそのトランザクションで削除・変更されたものも変更できない
-        TableTuple oldtuple = data.get(rid);
-        if(oldtuple == null || oldtuple.modified){
-            throw new RuntimeException("modify conflict");
-        }
-        //元の値を保存
-        TableTuple tuple = new TableTuple(oldtuple);
-        tuple.commitTx = 0;//未コミット
-        tuple.createTx = tx.txId;
-        //変更反映
+    void update(long rid, List<Optional<?>> copy) {
+        TableTuple tuple = data.get(rid);
+        List<Optional<?>> old = tuple.row;
         tuple.row = copy;
-        dataUpdate(tuple, oldtuple);
-        if(oldtuple.createTx == tx.txId){
-            //自分のトランザクションで変更したデータは履歴をとらない
-            return;
-        }
-        oldtuple.modified = true;
-        //履歴を保存
-        ModifiedTuple.Updated ud = new ModifiedTuple.Updated(oldtuple, tuple, tx.txId);
-        addModifiedTuple(ud);
-        tx.modifiedTuples.add(ud);
+        indexes.values().stream().flatMap(is -> is.stream()).forEach(idx -> idx.update(old, tuple));
     }
+
     public void dataUpdate(TableTuple tuple, TableTuple oldtuple){
         data.put(tuple.rid, tuple);
         indexes.values().stream().flatMap(is -> is.stream()).forEach(idx -> idx.update(oldtuple.row, tuple));
@@ -131,30 +100,6 @@ public class Table {
         indexes.computeIfAbsent(left, c -> new ArrayList<>()).add(idx);
     }
     
-    List<TableTuple> getModifiedTuples(Optional<Transaction> otx){
-        if(!otx.isPresent()){
-            return modifiedTuples.values().stream()
-                    .map(list -> list.stream()
-                            .filter(mt -> mt.isCommited()) //もしくはコミットされてない削除
-                            .map(mt -> ((ModifiedTuple.Updated)mt).newTuple)
-                            .findFirst())
-                    .filter(omt -> omt.isPresent()).map(omt -> omt.get())
-                    .collect(Collectors.toList());
-        }
-        Transaction tx = otx.get();
-        return modifiedTuples.values().stream()
-                .map(list -> list.stream()
-                        .filter(mt -> mt.modiryTx != tx.txId)//自分のトランザクションで変更されたものは省く
-                        .filter(mt -> !mt.isCommited() || (mt.commitTx >= tx.txId))
-                        .map(mt -> mt.oldtuple)
-                        .filter(ot -> tx.tupleAvailable(ot)).findFirst())
-                .filter(omt -> omt.isPresent()).map(omt -> omt.get())
-                .collect(Collectors.toList());
-    }
-    
-    void addModifiedTuple(ModifiedTuple mt){
-        modifiedTuples.computeIfAbsent(mt.oldtuple.rid, r -> new LinkedList())
-                .push(mt);
-    }
+
 
 }

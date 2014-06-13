@@ -542,28 +542,6 @@ public class SqlAnalizer {
         }
     }
 
-    public static class HistoryPlan extends QueryPlan{
-        Optional<Transaction> tx;
-        Table table;
-
-        public HistoryPlan(Optional<Transaction> tx, Table table) {
-            this.table = table;
-            this.tx = tx;
-        }
-
-        @Override
-        List<Column> getColumns() {
-            return table.columns;
-        }
-
-        @Override
-        Records<Tuple> records() {
-            Iterator<TableTuple> ite = table.getModifiedTuples(tx).iterator();
-            return () ->
-                ite.hasNext() ? Optional.of(ite.next()) : Optional.empty();
-        }
-    }
-    
     public static class UnionPlan extends NodePlan{
         QueryPlan secondPlan;
 
@@ -882,9 +860,7 @@ public class SqlAnalizer {
                 .orElseThrow(() -> 
                         new RuntimeException("table " + from.table.ident + " not found"));
         env.put(from.table.ident, table);
-        QueryPlan primary = new UnionPlan(
-                new TablePlan(ctx.currentTx, table),
-                new HistoryPlan(ctx.currentTx, table));
+        QueryPlan primary = new TablePlan(ctx.currentTx, table);
         
         for(ASTJoin j : from.joins){
             String t = j.table.ident;
@@ -892,9 +868,7 @@ public class SqlAnalizer {
                 new RuntimeException("join table " + t + " not found"));
             env.put(t, tb);
             SqlValue cond = validate(env, j.logic);
-            QueryPlan right = new UnionPlan(
-                    new TablePlan(ctx.currentTx, tb),
-                    new HistoryPlan(ctx.currentTx, tb));
+            QueryPlan right = new TablePlan(ctx.currentTx, tb);
             primary = new JoinPlan(primary, right, cond);
         }
         
@@ -1157,21 +1131,19 @@ public class SqlAnalizer {
         Map<Column, Integer> colIdx = primary.getColumnIndex();
         Records<Tuple> rec = primary.records();
         int[] ct = {0};
-        ctx.withTx(tx -> {
-            for(Optional<Tuple> oline; (oline = rec.next()).isPresent(); ){
-                Tuple line = oline.get();
-                List<Optional<?>> copy = new ArrayList<>(line.row);
-                while(copy.size() < t.columns.size()){
-                    copy.add(Optional.empty());
-                }
-
-                values.forEach(me -> {
-                    copy.set(me.getKey(), unwrap(eval(me.getValue(), colIdx, line)));
-                });
-                t.update(tx, line.rid, copy);
-                ++ct[0];
+        for(Optional<Tuple> oline; (oline = rec.next()).isPresent(); ){
+            Tuple line = oline.get();
+            List<Optional<?>> copy = new ArrayList<>(line.row);
+            while(copy.size() < t.columns.size()){
+                copy.add(Optional.empty());
             }
-        });
+
+            values.forEach(me -> {
+                copy.set(me.getKey(), unwrap(eval(me.getValue(), colIdx, line)));
+            });
+                t.update(line.rid, copy);
+            ++ct[0];
+        }
         return ct[0];
     }
     
