@@ -10,7 +10,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -35,9 +34,8 @@ public class Table {
         long createTx;
         long commitTx = 0;
 
-        public TableTuple(long rid, Transaction tx, List<Optional<?>> row) {
+        public TableTuple(long rid, List<Optional<?>> row) {
             super(rid, row);
-            this.createTx = tx.txId;
         }
 
         public void commit(long txId){
@@ -61,16 +59,15 @@ public class Table {
                 .collect(Collectors.toList());
     }
     
-    public Table insert(Transaction tx, Object... values){
+    public Table insert(Object... values){
         if(columns.size() < values.length){
             throw new RuntimeException("values count is over the number of columns");
         }
         ++rid;
-        TableTuple tuple = new TableTuple( rid, tx,
+        TableTuple tuple = new TableTuple( rid,
                 Arrays.stream(values)
                         .map(Optional::ofNullable)
                         .collect(Collectors.toList()));
-        tx.insertTuples.add(tuple);
         dataInsert(tuple);
         return this;
     }
@@ -91,7 +88,7 @@ public class Table {
         indexes.values().stream().flatMap(is -> is.stream()).forEach(idx -> idx.update(oldtuple.row, tuple));
     }
 
-    void delete(Transaction tx, List<TableTuple> row) {
+    void delete(List<TableTuple> row) {
 
         row.stream().map(t -> t.rid).forEach(data::remove);
         indexes.values().stream().flatMap(is -> is.stream()).forEach(idx -> row.forEach(r -> idx.delete(r)));

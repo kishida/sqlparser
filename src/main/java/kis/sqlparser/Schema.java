@@ -21,7 +21,6 @@ import java.util.stream.Collectors;
 public class Schema {
     Map<String, Table> tables;
     long txId;
-    LinkedList<Transaction> trans;
 
     public Schema() {
         this(new ArrayList<>());
@@ -31,7 +30,6 @@ public class Schema {
         txId = 0;
         this.tables = tables.stream()
                 .collect(Collectors.toMap(t -> t.name, t -> t));
-        this.trans = new LinkedList<>();
     }
     
     public Optional<Table> find(String name){
@@ -41,14 +39,5 @@ public class Schema {
     public Context createContext(){
         return new Context(this);
     }
-    public Transaction createTransaction(){
-        ++txId;
-        Transaction tx = new Transaction(this, txId);
-        trans.add(tx);
-        return tx;
-    }
-    
-    public void removeTx(Transaction tx){
-        trans.remove(tx);
-    }
+
 }
